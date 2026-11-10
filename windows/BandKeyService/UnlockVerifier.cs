@@ -1,0 +1,66 @@
+using System.Collections.Concurrent;
+
+namespace BandKeyService;
+
+public sealed class UnlockVerifier
+{
+    private static readonly TimeSpan MaxSkew = TimeSpan.FromSeconds(30);
+    private const long NonceTtlSeconds = 300;
+
+    private readonly DeviceStore _store;
+    private readonly ConcurrentDictionary<string, long> _nonces = new();
+
+    public UnlockVerifier(DeviceStore store) => _store = store;
+
+    public (bool Ok, string Error) Verify(UnlockRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.DeviceId))
+        {
+            return (false, "missing_device_id");
+        }
+
+        var device = _store.Find(request.DeviceId);
+        if (device is null)
+        {
+            return (false, "unknown_device");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var timestamp = DateTimeOffset.FromUnixTimeSeconds(request.Timestamp);
+        if (Math.Abs((now - timestamp).TotalSeconds) > MaxSkew.TotalSeconds)
+        {
+            return (false, "timestamp_out_of_range");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Nonce) || request.Nonce.Length is < 8 or > 128)
+        {
+            return (false, "invalid_nonce");
+        }
+
+        var data = $"unlock:{request.DeviceId}:{request.Nonce}:{request.Timestamp}";
+        if (string.IsNullOrWhiteSpace(request.Signature) ||
+            !CryptoUtil.VerifySignature(device.PublicKey, data, request.Signature))
+        {
+            return (false, "bad_signature");
+        }
+
+        PruneNonces(now.ToUnixTimeSeconds());
+        if (!_nonces.TryAdd(request.Nonce, now.ToUnixTimeSeconds()))
+        {
+            return (false, "replayed_nonce");
+        }
+
+        return (true, string.Empty);
+    }
+
+    private void PruneNonces(long nowSeconds)
+    {
+        foreach (var kv in _nonces)
+        {
+            if (nowSeconds - kv.Value > NonceTtlSeconds)
+            {
+                _nonces.TryRemove(kv.Key, out _);
+            }
+        }
+    }
+}

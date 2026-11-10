@@ -1,0 +1,293 @@
+# BandKey（电脑钥匙）
+
+用手机、手环或 NFC 卡解锁 Windows 电脑。本仓库是完整自研实现，包含 Android 端、Windows 服务、Windows 凭据提供程序（Credential Provider）、蓝牙/局域网通道、托盘程序和安装脚本。
+
+## 目录结构
+
+```text
+bandkey/
+├── docs/protocol.md                      # 协议、双管道、LAN 与自动解锁时序
+├── windows/
+│   ├── BandKeyService/                   # Windows 服务（.NET 8，WebSocket + LAN + 管道）
+│   ├── BandKeyTray/                      # 托盘程序（科技风 UI、凭据设置、配对 PIN、BLE GATT）
+│   ├── BandKeyBle/                       # BLE GATT 外设实现（供托盘引用）
+│   └── BandKeyCredentialProvider/        # 锁屏解锁插件（C++17）
+├── android/                              # Android 端（Kotlin + Compose）
+├── installer/BandKey.iss                 # Inno Setup 安装脚本
+└── tools/
+    ├── e2e_test.ps1                      # 协议端到端测试
+    ├── pipe_e2e_test.ps1                 # 自动解锁管道测试
+    ├── lan_smoke_test.py                 # 局域网发现 + TCP 配对/解锁测试
+    ├── simulate_phone.py                 # 模拟手机客户端
+    └── BleProbe/                         # BLE 外设能力探测
+```
+
+## 技术选型
+
+| 模块 | 实现 |
+| --- | --- |
+| Windows 服务 | C# / .NET 8，Kestrel WebSocket、TCP/UDP LAN、命名管道、ECDSA P-256 |
+| 托盘 | .NET 8 WinForms，自绘暗色科技风控件与菜单 |
+| Credential Provider | C++17 + WinSDK COM，接入 Winlogon 锁屏 |
+| 手机 ↔ 电脑 | WebSocket / BLE GATT / LAN TCP，统一 JSON + ECDSA 签名 |
+| Android | Kotlin + Jetpack Compose + OkHttp + Keystore |
+| 打包 | Inno Setup + 自包含单文件发布 |
+
+核心安全设计：
+
+- 解锁由手机私钥签名，服务端验签并校验 nonce / 时间戳，重放会被拒绝。
+- 配对 PIN 只在电脑托盘显示，手机输入确认，PIN 不通过网络回传。
+- Windows 密码只在托盘通过受保护管道提交，服务二次验证后用 DPAPI `LocalMachine` 加密保存。
+- 凭据提供程序运行在 SYSTEM / Winlogon 上下文，只读取本机凭据文件，不直接联网。
+
+## 快速开始（Windows）
+
+```powershell
+$dotnet = "$env:USERPROFILE\.dotnet\dotnet.exe"
+
+& $dotnet build windows\BandKeyService\BandKeyService.csproj -c Release
+& $dotnet build windows\BandKeyTray\BandKeyTray.csproj -c Release
+
+cd windows\BandKeyCredentialProvider
+powershell -ExecutionPolicy Bypass -File build.ps1
+```
+
+开发模式运行服务（不注册旧版 `BandKeyUnlock` 管道，避免与已安装服务冲突）：
+
+```powershell
+$dll = "windows\BandKeyService\bin\Release\net8.0\BandKeyService.dll"
+& $dotnet $dll --urls http://127.0.0.1:23234 --config "$env:TEMP\bandkey_devices.json" --pair-pin 123456 --dev
+```
+
+`--dev` 会放宽凭据与 CP 连接检查，并禁用旧管道；仅用于联调，生产安装不要使用。
+
+## 测试
+
+协议端到端测试（配对 + 解锁 + 防重放）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\e2e_test.ps1
+```
+
+自动解锁管道测试（`UNLOCK_READY` → `AUTO_UNLOCK` → ACK）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\pipe_e2e_test.ps1
+```
+
+局域网测试（UDP 发现 + TCP 配对/解锁）：
+
+```powershell
+python tools\lan_smoke_test.py
+```
+
+测试脚本会自动选择备用端口，不会干扰已安装在 `23234` 上运行的服务。PowerShell 5.1 对无 BOM 中文脚本较敏感，联调脚本保持 ASCII。
+
+## 通道与消息
+
+手机与电脑使用同一套协议，可走：
+
+- WebSocket：`ws://<主机IP>:23234/bandkey`
+- BLE GATT：服务 UUID `6e400001-b5a3-f393-e0a9-e50e24dcca9e`
+- LAN TCP：`<主机IP>:47321`，NDJSON
+- LAN UDP：`<广播地址>:47322`，响应 `BANDKEY_DISCOVER`
+
+完整消息、错误码、解锁时序和内部管道格式见 [docs/protocol.md](docs/protocol.md)。
+
+## 自动解锁链路
+
+```text
+手机私钥签名
+    -> BandKeyService 验签 + 防重放
+    -> 检查已配对设备、DPAPI 凭据、CP 连接
+    -> AutoUnlockState 打开 90 秒窗口
+    -> BandKeyPipe: AUTO_UNLOCK:<requestId>
+    -> Credential Provider 读取凭据并调用 KerbInteractiveLogon
+    -> AUTO_UNLOCK_ACK:<requestId>
+```
+
+如果 Windows 拒绝保存的密码，CP 回写 `PASSWORD_FAILED`，服务停止自动尝试，直到用户在托盘重新保存凭据。
+
+`UNLOCK_READY` 表示“已配对且凭据可用”或“处于 90 秒投递窗口”，不代表电脑一定锁屏；真正解锁仍要求手机每次签名。
+
+## 蓝牙（BLE）通道
+
+手机作为 BLE Central，电脑托盘作为 BLE Peripheral：
+
+| 项目 | 值 |
+| --- | --- |
+| 服务 UUID | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` |
+| RX（手机写入） | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
+| TX（电脑通知） | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
+| 分帧 | NDJSON，`\n` 结尾，单条上限 8 KiB |
+| 属性权限 | `Plain`，安全性由应用层签名保证 |
+
+监听放在托盘而不是系统服务：WinRT 的 `GattServiceProvider` 在 Session 0 的系统服务中不可用，托盘运行在用户会话，能正常广播。服务对托盘只暴露仅回环可访问的 `/rpc` 入口。
+
+自检：
+
+```powershell
+& $dotnet run --project tools\BleProbe -c Release -- --serve
+& $dotnet run --project tools\BleProbe -c Release -- --framing
+```
+
+注意：
+
+- 需要 Windows 10 1809+，蓝牙适配器支持 Peripheral 角色。
+- 广播不依赖自定义名称；手机按服务 UUID 过滤。
+- 同一适配器同时广播和扫描时，本机扫描不到自己的广播，这是协议栈行为。
+
+## 局域网通道
+
+- 手机广播 `BANDKEY_DISCOVER` 到 UDP `47322`，电脑返回名称、TCP 端口和本机 IPv4。
+- 手机随后连接 TCP `47321`，按行发送 JSON；连接可连续处理多条请求。
+- 服务只接受私有地址/回环地址，公共网络来源会被直接关闭。
+- 安装器会创建 `BandKey LAN TCP` 和 `BandKey LAN UDP` 两条防火墙规则。
+
+Android 在「蓝牙」模式下先尝试 BLE；BLE 失败后自动尝试 LAN（优先使用已填写的服务地址主机，否则 UDP 发现）。「WiFi」模式直接走 WebSocket。
+
+## 托盘与本地 API
+
+托盘以普通用户权限运行，通过 `127.0.0.1:23234` 的仅回环 API 与系统服务交互：
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/health` | 服务存活检查（托盘每 2 秒轮询） |
+| GET | `/status` | 就绪、凭据、CP、LAN 监听状态 |
+| GET | `/pairing` | 当前待确认配对请求；无请求返回 204 |
+| GET | `/devices` | 已配对设备列表 |
+| DELETE | `/devices/{id}` | 删除设备 |
+| POST | `/credential` | 旧版回环 HTTP 凭据入口 |
+| POST | `/rpc` | BLE 托盘协议入口 |
+
+托盘 UI 已统一为“信任仪表”暗色科技风：
+
+- 双击托盘打开一屏式控制中心，展示服务、蓝牙、已配对设备与凭据状态。
+- 三段信任环、状态胶囊、指标卡和动作网格均使用自绘控件，薄荷绿表示就绪，紫色表示身份，橙色表示等待，红色表示错误。
+- 配对请求使用大号 PIN、设备身份卡和连续倒计时；最后 60 秒转为橙色，过期转为红色。
+- 设备列表使用深色 OwnerDraw ListView、等宽设备 ID、左侧信号条选中态和授权数量胶囊。
+- 窗体、按钮、输入框和进度条使用克制的淡入、按压与状态过渡，并尊重系统“显示动画”设置。
+- 右键菜单保留快捷入口，托盘图标为运行时绘制的薄荷绿钥匙环。
+
+### 保存解锁凭据
+
+托盘菜单「设置解锁凭据」通过 `BandKeyTrayPipe` 提交，服务执行：
+
+1. 校验管道客户端身份与提交的 Windows 账户一致。
+2. 使用 `LogonUser` 实际验证密码。
+3. 使用 DPAPI `LocalMachine` 加密并原子写入 `C:\ProgramData\BandKey`。
+
+保留文件：
+
+- `C:\ProgramData\BandKey\username.txt`
+- `C:\ProgramData\BandKey\credential.dat`
+
+### 关于 Windows PIN（重要）
+
+这里有两个完全不同的 PIN：
+
+- **配对 PIN**：电脑托盘显示的 6 位数字，用于确认“这台手机可以加入”。它不是 Windows PIN。
+- **Windows Hello PIN**：系统用来登录本机的 PIN，由 TPM / NGC 管理，第三方 Credential Provider 无法读取或验证。
+
+因此当前实现必须保存 **Windows 账户密码** 作为后台自动登录凭据，不能改成“使用电脑 PIN 解锁”。托盘界面会明确提示“不是 PIN”。如果希望真正无密码，应改为证书登录（CP 返回 `CRED_TYPE_CERTIFICATE`），而不是尝试读取 Hello PIN。
+
+## Credential Provider（C++）
+
+需安装 Visual Studio 2022 Build Tools（MSVC v143 + Windows SDK + CMake）：
+
+```powershell
+winget install --id Microsoft.VisualStudio.2022.BuildTools --accept-package-agreements --accept-source-agreements --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621 --add Microsoft.VisualStudio.Component.VC.CMake.Project"
+```
+
+构建：
+
+```powershell
+cd windows\BandKeyCredentialProvider
+powershell -ExecutionPolicy Bypass -File build.ps1
+# 产物：build\Release\BandKeyCredentialProvider.dll
+```
+
+手动注册（管理员）：
+
+```powershell
+regsvr32 build\Release\BandKeyCredentialProvider.dll
+```
+
+安装包会自动注册 COM CLSID 与 Credential Provider 键。
+
+## Android 端
+
+工程位于 `android/`，已包含 Gradle Wrapper、应用图标、Compose 主题和配对/解锁界面。
+
+**Android Studio**
+
+1. 安装 Android Studio（JDK 17 + SDK 35）。
+2. `File -> Open` 选择 `android/`。
+3. 真机运行；默认「蓝牙」模式，点「配对」后扫描电脑 BLE 广播。
+
+**命令行**
+
+需本机 JDK 17 与 Android SDK（已设置 `ANDROID_HOME` / `ANDROID_SDK_ROOT`）：
+
+```powershell
+cd android
+powershell -ExecutionPolicy Bypass -File build.ps1
+powershell -ExecutionPolicy Bypass -File build.ps1 assembleRelease
+```
+
+产物：`app\build\outputs\apk\debug\app-debug.apk` 或 `app\build\outputs\apk\release\app-release.apk`。
+
+Release 使用仓库内置的开发签名（`android/bandkey-release.keystore` + `android/keystore.properties`，别名 `bandkey`）。仅用于侧载测试；正式发布请替换为自己的签名并妥善保管密钥。
+
+### Android 持久化与回退
+
+- 配对成功后，`deviceId`、公钥、私钥写入 `PairingStore`。
+- 私钥等内容先序列化，再由 Android Keystore 的 AES-256-GCM 密钥加密，密文放入 `SharedPreferences`。
+- 重启 App 会自动恢复配对，不需要重新配对；「解除配对」会清除本地密文。
+- 「蓝牙」模式：BLE → LAN TCP 自动回退。
+- 「WiFi」模式：直接连接 `ws://<主机IP>:23234/bandkey`。
+- UI 使用深色太空背景、雷达脉冲动画、状态卡片、模式切换胶囊和渐变主按钮。
+
+## 打包安装包
+
+先发布服务与托盘，再编译 CP，最后运行 Inno Setup：
+
+```powershell
+$dotnet = "$env:USERPROFILE\.dotnet\dotnet.exe"
+& $dotnet publish windows\BandKeyService -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+& $dotnet publish windows\BandKeyTray -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+
+cd windows\BandKeyCredentialProvider
+powershell -ExecutionPolicy Bypass -File build.ps1
+
+cd ..\..
+& "C:\Users\13086\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\BandKey.iss
+```
+
+不要并行执行 `dotnet publish` 与 `ISCC.exe`：安装器会读取发布目录，并发可能导致缺文件。
+
+## 故障排查
+
+- 托盘显示「服务状态：未运行」：在服务管理器中启动 `BandKeyService`，或查看事件查看器的 7000/7009 错误。
+- 手机点配对但电脑没弹 PIN：确认服务运行中、手机已发出 `pair_request`；PIN 只在电脑托盘显示，不回传手机。
+- 已配对设备列表为空：手机必须完成 `pair_success`。开发模式使用 `%TEMP%` 配置文件，与已安装服务使用的 `C:\ProgramData\BandKey\devices.json` 不是同一份数据。
+- PIN 输入错误：配对 PIN 有效期 5 分钟，可在有效期内重试；过期后重新发起配对。
+- Windows 密码被拒绝：托盘重新保存“Windows 登录密码”，不是 Windows Hello PIN。
+- BLE 不可用：确认蓝牙适配器支持 Peripheral；失败时 Android 会自动回退 LAN。
+- LAN 不通：确认手机与电脑同一局域网、防火墙允许 TCP `47321` / UDP `47322`。
+- 托盘日志：`%LOCALAPPDATA%\BandKey\tray.log`（菜单「打开日志目录」）。
+- 锁屏凭据日志：`C:\ProgramData\BandKey\cp.log`（记录 LogonUI 枚举与序列化结果，含 `ReportResult` 状态码）。
+- `ReportResult status=0xC000000D`：CP 序列化结构不合法。`KERB_INTERACTIVE_UNLOCK_LOGON` 是 packed 结构，`UNICODE_STRING.Buffer` 必须填相对缓冲区起点的字节偏移（不是进程内绝对指针），且 `Length` 不包含结尾 NUL；1.5.1 已修复。
+
+## 路线图
+
+- [x] 配对 + ECDSA 验签 + 防重放
+- [x] Credential Provider 锁屏接入 + 自动解锁 ACK
+- [x] 双管道与凭据身份校验
+- [x] BLE GATT + LAN TCP/UDP 回退
+- [x] Android Keystore 配对持久化
+- [x] PC / Android 科技风 UI
+- [ ] 真实 Winlogon 锁屏全链路回归
+- [ ] 证书登录（真正无密码）
+- [ ] 心跳与连接状态可视化
+- [ ] 体积优化（NativeAOT / trimming）

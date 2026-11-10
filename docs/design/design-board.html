@@ -1,0 +1,1985 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BandKey 2.0 · 信任仪表 · 页面设计稿</title>
+<style>
+  :root {
+    --bg: #05070b;
+    --bg-2: #080c12;
+    --panel: #0d131c;
+    --panel-2: #111a26;
+    --panel-3: #162231;
+    --line: rgba(255, 255, 255, .075);
+    --line-strong: rgba(255, 255, 255, .13);
+    --text: #edf6fa;
+    --muted: #8a9bae;
+    --dim: #5a6b7e;
+    --mint: #63f2cf;
+    --mint-2: #2ed3b0;
+    --iris: #8c7bff;
+    --iris-2: #6f5cf5;
+    --amber: #ffb86b;
+    --coral: #ff6b81;
+    --blue: #59a7ff;
+    --radius: 20px;
+    --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+    --sans: "MiSans", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(900px 520px at 8% -6%, rgba(99, 242, 207, .08), transparent 62%),
+      radial-gradient(900px 640px at 94% 8%, rgba(140, 123, 255, .09), transparent 64%),
+      linear-gradient(180deg, #05070b 0%, #070a0f 55%, #04060a 100%);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: linear-gradient(180deg, rgba(0,0,0,.55), transparent 72%);
+  }
+
+  .board {
+    position: relative;
+    width: 2040px;
+    padding: 46px 40px 72px;
+  }
+
+  .board-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 40px;
+    padding: 10px 8px 38px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 42px;
+  }
+
+  .eyebrow {
+    color: var(--mint);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 3.2px;
+    margin-bottom: 16px;
+  }
+
+  .board-head h1 {
+    margin: 0;
+    font-size: 58px;
+    line-height: 1.04;
+    letter-spacing: -2.2px;
+    font-weight: 800;
+  }
+
+  .board-head h1 span {
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.5px;
+    margin-left: 18px;
+  }
+
+  .board-head p {
+    max-width: 720px;
+    margin: 18px 0 0;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.9;
+  }
+
+  .head-meta {
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    gap: 44px;
+    padding-bottom: 4px;
+  }
+
+  .head-meta div { display: grid; gap: 7px; }
+  .head-meta span {
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+  }
+  .head-meta b {
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .section-label {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 0 0 26px 4px;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+  }
+  .section-label::before {
+    content: "";
+    width: 28px;
+    height: 1px;
+    background: var(--mint);
+    opacity: .7;
+  }
+
+  .hero {
+    display: grid;
+    grid-template-columns: 1226px 1fr;
+    gap: 56px;
+    align-items: start;
+    margin-bottom: 82px;
+  }
+
+  .phones {
+    display: flex;
+    gap: 28px;
+    align-items: flex-start;
+  }
+
+  .phone {
+    width: 390px;
+    flex: 0 0 390px;
+  }
+
+  .phone-shell {
+    width: 390px;
+    height: 844px;
+    border-radius: 46px;
+    padding: 7px;
+    background: linear-gradient(160deg, #28313c, #0b0e13 38%, #1b222b 100%);
+    box-shadow:
+      0 42px 90px rgba(0, 0, 0, .62),
+      0 0 0 1px rgba(255, 255, 255, .10),
+      inset 0 0 0 1px rgba(255, 255, 255, .12);
+    position: relative;
+  }
+
+  .phone-shell::after {
+    content: "";
+    position: absolute;
+    inset: 7px;
+    border-radius: 39px;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .8);
+  }
+
+  .phone-screen {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 39px;
+    overflow: hidden;
+    background:
+      radial-gradient(340px 280px at 10% -8%, rgba(99, 242, 207, .08), transparent 70%),
+      radial-gradient(360px 300px at 100% 16%, rgba(140, 123, 255, .10), transparent 72%),
+      linear-gradient(180deg, #080c12 0%, #06090e 68%, #05070b 100%);
+  }
+
+  .phone-screen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: linear-gradient(180deg, rgba(0,0,0,.5), transparent 62%);
+    pointer-events: none;
+  }
+
+  .island {
+    position: absolute;
+    z-index: 5;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 96px;
+    height: 25px;
+    border-radius: 99px;
+    background: #020304;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+  }
+
+  .statusbar {
+    position: relative;
+    z-index: 4;
+    height: 46px;
+    padding: 13px 24px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #d9e7ee;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .4px;
+  }
+
+  .status-icons { display: flex; align-items: center; gap: 6px; }
+  .signal {
+    width: 13px; height: 9px;
+    background: linear-gradient(90deg, #d9e7ee 0 20%, transparent 20% 28%, #d9e7ee 28% 50%, transparent 50% 58%, #d9e7ee 58% 78%, transparent 78% 86%, #d9e7ee 86%);
+    clip-path: polygon(0 70%, 20% 70%, 20% 46%, 50% 46%, 50% 22%, 78% 22%, 78% 0, 100% 0, 100% 100%, 0 100%);
+    opacity: .95;
+  }
+  .battery {
+    width: 20px; height: 10px;
+    border: 1px solid rgba(217,231,238,.55);
+    border-radius: 3px;
+    position: relative;
+  }
+  .battery::before {
+    content: ""; position: absolute; inset: 2px; width: 12px; border-radius: 1px; background: #d9e7ee;
+  }
+  .battery::after {
+    content: ""; position: absolute; top: 2px; right: -3px; width: 2px; height: 4px; border-radius: 0 1px 1px 0; background: rgba(217,231,238,.55);
+  }
+
+  .screen-body {
+    position: relative;
+    z-index: 3;
+    height: calc(100% - 46px);
+    padding: 7px 22px 92px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .app-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 42px;
+    margin-bottom: 16px;
+  }
+
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .brand-mark {
+    width: 30px; height: 30px;
+    display: grid; place-items: center;
+    border-radius: 10px;
+    background: linear-gradient(145deg, rgba(99,242,207,.18), rgba(140,123,255,.14));
+    border: 1px solid rgba(99,242,207,.3);
+    color: var(--mint);
+  }
+  .brand-mark svg { width: 16px; height: 16px; }
+  .brand-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+  }
+  .brand-sub {
+    margin-top: 2px;
+    color: var(--dim);
+    font-size: 9px;
+    letter-spacing: 1px;
+  }
+
+  .icon-btn {
+    width: 36px; height: 36px;
+    display: grid; place-items: center;
+    border-radius: 12px;
+    background: rgba(255,255,255,.035);
+    border: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .icon-btn svg { width: 17px; height: 17px; }
+
+  .greet { margin: 6px 2px 12px; }
+  .greet-sub {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: .4px;
+  }
+  .greet-title {
+    margin-top: 5px;
+    font-size: 27px;
+    font-weight: 800;
+    letter-spacing: -0.8px;
+  }
+  .greet-title em {
+    color: var(--mint);
+    font-style: normal;
+  }
+
+  .dial-wrap {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: 266px;
+    margin: 2px 0 8px;
+  }
+
+  .dial {
+    position: relative;
+    width: 246px;
+    height: 246px;
+    display: grid;
+    place-items: center;
+  }
+
+  .dial::before {
+    content: "";
+    position: absolute;
+    inset: 15px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(99,242,207,.11), rgba(99,242,207,.03) 45%, transparent 70%);
+    filter: blur(2px);
+  }
+
+  .dial svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+  .dial-center {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+  }
+  .dial-kicker {
+    color: var(--mint);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    margin-bottom: 7px;
+  }
+  .dial-main {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.2px;
+  }
+  .dial-sub {
+    margin-top: 8px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .8px;
+  }
+  .dial-ticks {
+    position: absolute;
+    inset: 31px;
+    border-radius: 50%;
+    background: repeating-conic-gradient(from -2deg, rgba(255,255,255,.22) 0deg .7deg, transparent .7deg 6deg);
+    mask: radial-gradient(circle, transparent 97%, #000 98%);
+    opacity: .55;
+  }
+
+  .rail {
+    display: grid;
+    gap: 2px;
+    padding: 5px 0;
+    margin-bottom: 12px;
+  }
+  .rail-row {
+    display: grid;
+    grid-template-columns: 8px 1fr auto auto;
+    align-items: center;
+    gap: 10px;
+    min-height: 31px;
+    padding: 0 3px;
+    border-bottom: 1px solid rgba(255,255,255,.045);
+  }
+  .rail-row:last-child { border-bottom: 0; }
+  .rail-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .rail-dot.mint { background: var(--mint); box-shadow: 0 0 8px rgba(99,242,207,.7); }
+  .rail-dot.iris { background: var(--iris); box-shadow: 0 0 8px rgba(140,123,255,.65); }
+  .rail-label { color: var(--muted); font-size: 12px; }
+  .rail-value { color: var(--text); font-size: 12px; font-weight: 600; }
+  .rail-meta { color: var(--dim); font-family: var(--mono); font-size: 10px; }
+
+  .cta {
+    width: 100%;
+    min-height: 58px;
+    border: 0;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #8af9dd 0%, #5be7c8 48%, #39cdb0 100%);
+    color: #03201b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 11px;
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 1.4px;
+    box-shadow:
+      0 12px 30px rgba(46, 211, 176, .18),
+      inset 0 1px 0 rgba(255,255,255,.5);
+  }
+  .cta svg { width: 18px; height: 18px; }
+  .cta small {
+    display: block;
+    margin-top: 2px;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: .6px;
+    opacity: .62;
+  }
+  .cta .cta-text { display: grid; text-align: left; line-height: 1.05; }
+
+  .micro {
+    margin-top: 10px;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 9px;
+    text-align: center;
+    letter-spacing: .4px;
+  }
+
+  .tabbar {
+    position: absolute;
+    z-index: 6;
+    left: 18px;
+    right: 18px;
+    bottom: 15px;
+    height: 64px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    align-items: center;
+    padding: 6px;
+    border-radius: 22px;
+    background: rgba(10, 15, 22, .82);
+    border: 1px solid rgba(255,255,255,.08);
+    box-shadow: 0 16px 34px rgba(0,0,0,.42);
+    backdrop-filter: blur(18px);
+  }
+  .tab {
+    height: 50px;
+    border-radius: 16px;
+    display: grid;
+    place-items: center;
+    gap: 3px;
+    color: var(--dim);
+    font-size: 9px;
+    letter-spacing: .5px;
+  }
+  .tab svg { width: 19px; height: 19px; }
+  .tab.active {
+    color: var(--mint);
+    background: linear-gradient(180deg, rgba(99,242,207,.13), rgba(99,242,207,.05));
+    box-shadow: inset 0 0 0 1px rgba(99,242,207,.16);
+  }
+
+  .phone-caption {
+    display: grid;
+    gap: 6px;
+    margin: 18px 4px 0;
+  }
+  .phone-caption b {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--mint);
+    letter-spacing: 1.4px;
+  }
+  .phone-caption span {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .manifesto {
+    padding-top: 54px;
+  }
+  .manifesto .big {
+    margin: 0;
+    font-size: 36px;
+    line-height: 1.25;
+    letter-spacing: -1.4px;
+    font-weight: 800;
+  }
+  .manifesto .big span { color: var(--mint); }
+  .manifesto .lead {
+    margin: 20px 0 30px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.95;
+  }
+  .principle {
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 14px;
+    padding: 15px 0;
+    border-top: 1px solid var(--line);
+  }
+  .principle .n {
+    color: var(--mint);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .principle b { display: block; font-size: 13px; margin-bottom: 5px; }
+  .principle span { color: var(--muted); font-size: 12px; line-height: 1.65; }
+
+  .phones-row {
+    display: flex;
+    gap: 28px;
+    margin-bottom: 82px;
+  }
+
+  .pairing-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .back {
+    width: 36px; height: 36px;
+    display: grid; place-items: center;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .back svg { width: 17px; height: 17px; }
+  .step {
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1.4px;
+  }
+
+  .pairing-title {
+    margin: 2px 0 6px;
+    font-size: 25px;
+    font-weight: 800;
+    letter-spacing: -0.6px;
+  }
+  .pairing-sub {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.65;
+    margin-bottom: 18px;
+  }
+
+  .device-card {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    padding: 14px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(17,26,38,.92), rgba(11,16,24,.92));
+    border: 1px solid var(--line);
+    margin-bottom: 22px;
+  }
+  .device-icon {
+    width: 42px; height: 42px;
+    display: grid; place-items: center;
+    border-radius: 13px;
+    background: rgba(140,123,255,.10);
+    border: 1px solid rgba(140,123,255,.22);
+    color: var(--iris);
+  }
+  .device-icon svg { width: 21px; height: 21px; }
+  .device-copy { flex: 1; }
+  .device-copy b { display: block; font-family: var(--mono); font-size: 12px; letter-spacing: .3px; }
+  .device-copy span { display: block; margin-top: 5px; color: var(--dim); font-size: 10px; }
+  .connected {
+    color: var(--mint);
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: .8px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .connected::before {
+    content: "";
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--mint);
+    box-shadow: 0 0 8px rgba(99,242,207,.8);
+  }
+
+  .otp-label {
+    color: var(--muted);
+    font-size: 11px;
+    margin-bottom: 10px;
+  }
+  .otp {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .otp span {
+    flex: 1;
+    height: 58px;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    background: rgba(8,13,21,.9);
+    border: 1px solid var(--line-strong);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .otp span.active {
+    border-color: rgba(99,242,207,.65);
+    box-shadow: 0 0 0 3px rgba(99,242,207,.08), inset 0 0 18px rgba(99,242,207,.04);
+    color: var(--mint);
+  }
+  .otp span.empty { color: var(--dim); }
+
+  .countdown {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .countdown .time {
+    color: var(--amber);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .8px;
+  }
+  .countdown .bar {
+    flex: 1;
+    height: 3px;
+    border-radius: 99px;
+    background: rgba(255,255,255,.06);
+    overflow: hidden;
+  }
+  .countdown .bar i {
+    display: block;
+    width: 74%;
+    height: 100%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, var(--amber), #ff8c62);
+  }
+  .ghost-link {
+    text-align: center;
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 14px;
+  }
+  .ghost-link b { color: var(--text); font-weight: 600; }
+  .note {
+    margin-top: 18px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(255,184,107,.05);
+    border: 1px solid rgba(255,184,107,.14);
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.65;
+  }
+
+  .summary {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 18px;
+    border-radius: 20px;
+    background:
+      radial-gradient(220px 120px at 100% 0%, rgba(99,242,207,.10), transparent 70%),
+      linear-gradient(180deg, rgba(17,26,38,.94), rgba(11,16,24,.94));
+    border: 1px solid var(--line);
+    margin: 4px 0 20px;
+  }
+  .summary .count {
+    font-family: var(--mono);
+    font-size: 42px;
+    line-height: 1;
+    color: var(--mint);
+    letter-spacing: -2px;
+  }
+  .summary .count small { font-size: 12px; color: var(--muted); letter-spacing: 0; margin-left: 7px; }
+  .summary .label { margin-top: 8px; color: var(--muted); font-size: 11px; }
+  .summary .sync { color: var(--dim); font-family: var(--mono); font-size: 9px; text-align: right; line-height: 1.6; }
+
+  .device-list { display: grid; gap: 10px; }
+  .device-row {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    padding: 14px;
+    border-radius: 17px;
+    background: rgba(255,255,255,.025);
+    border: 1px solid var(--line);
+  }
+  .device-row.current {
+    background: linear-gradient(90deg, rgba(99,242,207,.09), rgba(99,242,207,.025));
+    border-color: rgba(99,242,207,.20);
+  }
+  .device-row .mini-icon {
+    width: 38px; height: 38px;
+    display: grid; place-items: center;
+    border-radius: 12px;
+    background: rgba(255,255,255,.04);
+    color: var(--muted);
+  }
+  .device-row.current .mini-icon { color: var(--mint); background: rgba(99,242,207,.09); }
+  .device-row .mini-icon svg { width: 18px; height: 18px; }
+  .device-row .copy { flex: 1; }
+  .device-row .copy b { display: block; font-size: 12px; }
+  .device-row .copy span { display: block; margin-top: 4px; color: var(--dim); font-family: var(--mono); font-size: 9px; }
+  .device-row .end { color: var(--dim); }
+  .device-row .end svg { width: 15px; height: 15px; }
+  .badge-current {
+    color: var(--mint);
+    background: rgba(99,242,207,.10);
+    border: 1px solid rgba(99,242,207,.18);
+    border-radius: 99px;
+    padding: 4px 8px;
+    font-size: 8px;
+    letter-spacing: .5px;
+  }
+  .list-note {
+    margin-top: 16px;
+    color: var(--dim);
+    font-size: 10px;
+    line-height: 1.6;
+    text-align: center;
+  }
+
+  .segmented {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 15px;
+    background: rgba(255,255,255,.035);
+    border: 1px solid var(--line);
+    margin-bottom: 16px;
+  }
+  .segmented span {
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border-radius: 11px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .segmented span.active {
+    background: linear-gradient(180deg, rgba(99,242,207,.15), rgba(99,242,207,.07));
+    color: var(--mint);
+    box-shadow: inset 0 0 0 1px rgba(99,242,207,.16);
+  }
+
+  .setting-card {
+    padding: 15px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(17,26,38,.92), rgba(11,16,24,.92));
+    border: 1px solid var(--line);
+    margin-bottom: 12px;
+  }
+  .setting-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 9px;
+  }
+  .setting-head b { font-size: 12px; }
+  .setting-head span { color: var(--mint); font-family: var(--mono); font-size: 9px; }
+  .setting-desc { color: var(--dim); font-size: 10px; line-height: 1.6; }
+  .field-mock {
+    margin-top: 10px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    border-radius: 11px;
+    background: rgba(6,10,16,.8);
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    overflow: hidden;
+  }
+  .security-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 33px;
+    border-bottom: 1px solid rgba(255,255,255,.045);
+    font-size: 10px;
+  }
+  .security-row:last-child { border-bottom: 0; }
+  .security-row span { color: var(--dim); }
+  .security-row b { color: var(--text); font-family: var(--mono); font-size: 9px; font-weight: 600; }
+  .danger-link {
+    margin-top: 10px;
+    text-align: center;
+    color: var(--coral);
+    font-size: 10px;
+    padding: 12px;
+  }
+
+  .error-icon {
+    width: 78px; height: 78px;
+    margin: 34px auto 22px;
+    display: grid; place-items: center;
+    border-radius: 26px;
+    color: var(--amber);
+    background: rgba(255,184,107,.08);
+    border: 1px solid rgba(255,184,107,.22);
+    box-shadow: 0 0 50px rgba(255,184,107,.08);
+  }
+  .error-icon svg { width: 36px; height: 36px; }
+  .error-title { text-align: center; font-size: 23px; font-weight: 800; }
+  .error-text {
+    margin: 10px 20px 26px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.75;
+    text-align: center;
+  }
+  .steps { display: grid; gap: 9px; margin-bottom: 26px; }
+  .step-row {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    padding: 13px;
+    border-radius: 15px;
+    background: rgba(255,255,255,.025);
+    border: 1px solid var(--line);
+  }
+  .step-row .num {
+    width: 24px; height: 24px;
+    border-radius: 8px;
+    display: grid; place-items: center;
+    background: rgba(99,242,207,.09);
+    color: var(--mint);
+    font-family: var(--mono);
+    font-size: 10px;
+  }
+  .step-row b { display: block; font-size: 11px; }
+  .step-row span { display: block; margin-top: 3px; color: var(--dim); font-size: 9px; }
+
+  .ghost-btn {
+    width: 100%;
+    height: 48px;
+    border-radius: 14px;
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .success-dial {
+    position: relative;
+    width: 212px;
+    height: 212px;
+    margin: 58px auto 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(99,242,207,.12), transparent 68%);
+  }
+  .success-dial::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(99,242,207,.35);
+    box-shadow: 0 0 0 15px rgba(99,242,207,.035), 0 0 60px rgba(99,242,207,.14);
+  }
+  .success-dial::after {
+    content: "";
+    position: absolute;
+    inset: 27px;
+    border-radius: 50%;
+    border: 1px dashed rgba(99,242,207,.26);
+  }
+  .success-check {
+    width: 72px; height: 72px;
+    display: grid; place-items: center;
+    border-radius: 50%;
+    background: linear-gradient(145deg, #8af9dd, #32c9ad);
+    color: #03201b;
+    box-shadow: 0 16px 44px rgba(46,211,176,.24);
+  }
+  .success-check svg { width: 34px; height: 34px; }
+  .success-title { text-align: center; font-size: 27px; font-weight: 800; letter-spacing: -.6px; }
+  .success-sub { margin-top: 8px; text-align: center; color: var(--muted); font-size: 11px; }
+  .receipt {
+    margin: 32px 0 18px;
+    padding: 16px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(17,26,38,.9), rgba(11,16,24,.9));
+    border: 1px solid var(--line);
+  }
+  .receipt-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 7px 0;
+    font-size: 10px;
+  }
+  .receipt-row span { color: var(--dim); }
+  .receipt-row b { font-family: var(--mono); font-size: 9px; font-weight: 600; }
+
+  .desktop-row {
+    display: flex;
+    gap: 28px;
+    align-items: flex-start;
+    margin-bottom: 82px;
+  }
+
+  .window {
+    border-radius: 18px;
+    overflow: hidden;
+    background: linear-gradient(180deg, #0b111a, #070b11);
+    border: 1px solid rgba(255,255,255,.10);
+    box-shadow: 0 32px 70px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  .win-title {
+    height: 54px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255,255,255,.025), transparent);
+  }
+  .win-brand {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.6px;
+    color: var(--mint);
+  }
+  .win-brand span { color: var(--dim); font-weight: 500; letter-spacing: .8px; }
+  .win-controls { display: flex; gap: 9px; color: var(--dim); font-family: var(--mono); font-size: 12px; }
+  .win-body { padding: 20px; }
+
+  .tray { width: 420px; }
+  .tray-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+  }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border-radius: 99px;
+    padding: 6px 10px;
+    color: var(--mint);
+    background: rgba(99,242,207,.08);
+    border: 1px solid rgba(99,242,207,.18);
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: .7px;
+  }
+  .status-pill::before {
+    content: "";
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--mint);
+    box-shadow: 0 0 8px rgba(99,242,207,.8);
+  }
+  .tray-version { color: var(--dim); font-family: var(--mono); font-size: 9px; }
+  .tray-hero {
+    display: grid;
+    grid-template-columns: 1fr 116px;
+    gap: 12px;
+    align-items: center;
+    padding: 18px;
+    border-radius: 18px;
+    background:
+      radial-gradient(200px 120px at 100% 0%, rgba(99,242,207,.10), transparent 70%),
+      linear-gradient(180deg, rgba(17,26,38,.9), rgba(11,16,24,.9));
+    border: 1px solid var(--line);
+    margin-bottom: 14px;
+  }
+  .tray-hero h3 { margin: 0; font-size: 22px; letter-spacing: -.5px; }
+  .tray-hero p { margin: 7px 0 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+  .mini-ring {
+    width: 104px; height: 104px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    background: conic-gradient(var(--mint) 0 72%, rgba(255,255,255,.07) 72% 100%);
+    position: relative;
+  }
+  .mini-ring::before {
+    content: "";
+    position: absolute; inset: 8px; border-radius: 50%;
+    background: #0b111a;
+    border: 1px solid rgba(255,255,255,.06);
+  }
+  .mini-ring div { position: relative; text-align: center; }
+  .mini-ring b { display: block; font-family: var(--mono); font-size: 19px; color: var(--mint); }
+  .mini-ring span { display: block; margin-top: 3px; color: var(--dim); font-family: var(--mono); font-size: 8px; }
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .metric {
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(255,255,255,.025);
+    border: 1px solid var(--line);
+  }
+  .metric span { display: block; color: var(--dim); font-size: 9px; }
+  .metric b { display: block; margin-top: 7px; font-family: var(--mono); font-size: 10px; color: var(--text); }
+  .metric b.ok { color: var(--mint); }
+  .tray-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .tray-action {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 12px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,.02);
+    color: var(--muted);
+    font-size: 10px;
+  }
+  .tray-action svg { width: 15px; height: 15px; color: var(--dim); }
+  .tray-action.primary {
+    grid-column: 1 / -1;
+    min-height: 48px;
+    justify-content: center;
+    background: linear-gradient(135deg, rgba(99,242,207,.16), rgba(46,211,176,.08));
+    border-color: rgba(99,242,207,.24);
+    color: var(--mint);
+    font-weight: 700;
+  }
+  .tray-foot {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 8px;
+  }
+
+  .pair-window { width: 520px; }
+  .pair-window .win-body { padding: 24px 26px 22px; }
+  .dialog-kicker {
+    color: var(--mint);
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 1.8px;
+    margin-bottom: 8px;
+  }
+  .dialog-title { margin: 0; font-size: 23px; letter-spacing: -.5px; }
+  .dialog-sub { margin: 8px 0 18px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+  .pin-box {
+    padding: 20px 18px 16px;
+    border-radius: 18px;
+    background:
+      radial-gradient(260px 120px at 50% 0%, rgba(99,242,207,.09), transparent 70%),
+      rgba(6,10,16,.72);
+    border: 1px solid rgba(99,242,207,.16);
+    text-align: center;
+    margin-bottom: 14px;
+  }
+  .pin-label { color: var(--dim); font-family: var(--mono); font-size: 8px; letter-spacing: 1.5px; }
+  .pin-value {
+    margin: 12px 0 10px;
+    font-family: var(--mono);
+    font-size: 46px;
+    font-weight: 700;
+    letter-spacing: 12px;
+    color: var(--mint);
+    text-indent: 12px;
+  }
+  .pin-timer { display: flex; align-items: center; gap: 10px; }
+  .pin-timer .bar { flex: 1; height: 3px; background: rgba(255,255,255,.06); border-radius: 99px; overflow: hidden; }
+  .pin-timer .bar i { display: block; width: 74%; height: 100%; background: linear-gradient(90deg, var(--amber), #ff8c62); }
+  .pin-timer span { color: var(--amber); font-family: var(--mono); font-size: 9px; }
+  .dialog-note {
+    padding: 10px 12px;
+    border-radius: 11px;
+    background: rgba(255,184,107,.05);
+    border: 1px solid rgba(255,184,107,.13);
+    color: var(--muted);
+    font-size: 9px;
+    line-height: 1.6;
+    margin-bottom: 16px;
+  }
+  .dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+  .btn {
+    height: 40px;
+    padding: 0 18px;
+    border-radius: 11px;
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .btn.primary {
+    background: linear-gradient(135deg, #8af9dd, #46d6b8);
+    border-color: transparent;
+    color: #03201b;
+  }
+  .btn.danger { color: var(--coral); border-color: rgba(255,107,129,.22); }
+
+  .lock-stage {
+    width: 520px;
+    height: 560px;
+    border-radius: 18px;
+    overflow: hidden;
+    position: relative;
+    border: 1px solid rgba(255,255,255,.10);
+    background:
+      radial-gradient(500px 260px at 70% 10%, rgba(76, 111, 178, .34), transparent 70%),
+      linear-gradient(160deg, #0a1424, #08101d 48%, #050a12);
+  }
+  .lock-stage::before {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.03), transparent 30%),
+      radial-gradient(400px 200px at 50% 100%, rgba(99,242,207,.08), transparent 70%);
+  }
+  .lock-clock {
+    position: absolute;
+    top: 56px; left: 52px;
+    color: rgba(255,255,255,.9);
+  }
+  .lock-clock .time { font-family: var(--mono); font-size: 42px; letter-spacing: -2px; }
+  .lock-clock .date { margin-top: 4px; color: rgba(255,255,255,.45); font-size: 11px; }
+  .lock-card {
+    position: absolute;
+    left: 50%; top: 52%;
+    transform: translate(-50%, -50%);
+    width: 356px;
+    padding: 24px;
+    border-radius: 20px;
+    background: rgba(10, 16, 24, .72);
+    border: 1px solid rgba(255,255,255,.12);
+    box-shadow: 0 28px 60px rgba(0,0,0,.45);
+    backdrop-filter: blur(22px);
+  }
+  .lock-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+  .lock-brand .brand-mark { width: 34px; height: 34px; }
+  .lock-brand b { font-family: var(--mono); font-size: 11px; letter-spacing: 1.4px; }
+  .lock-brand span { display: block; margin-top: 3px; color: var(--dim); font-size: 8px; letter-spacing: .8px; }
+  .lock-title { font-size: 20px; font-weight: 700; }
+  .lock-sub { margin: 7px 0 18px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+  .lock-progress {
+    display: flex; align-items: center; gap: 7px;
+    margin-bottom: 18px;
+  }
+  .lock-progress i {
+    flex: 1; height: 3px; border-radius: 99px;
+    background: rgba(255,255,255,.08);
+  }
+  .lock-progress i.on { background: var(--mint); box-shadow: 0 0 10px rgba(99,242,207,.35); }
+  .lock-status {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 12px;
+    border-radius: 11px;
+    background: rgba(99,242,207,.06);
+    border: 1px solid rgba(99,242,207,.13);
+    color: var(--mint);
+    font-family: var(--mono);
+    font-size: 9px;
+    margin-bottom: 14px;
+  }
+  .lock-btn {
+    width: 100%; height: 44px;
+    display: grid; place-items: center;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #8af9dd, #46d6b8);
+    color: #03201b;
+    font-size: 11px;
+    font-weight: 800;
+  }
+  .lock-alt { margin-top: 13px; text-align: center; color: var(--dim); font-size: 9px; }
+
+  .devices-window { width: 760px; }
+  .devices-window .win-body { padding: 22px 24px; }
+  .table-head {
+    display: grid;
+    grid-template-columns: 1.4fr 2fr .9fr;
+    gap: 12px;
+    padding: 0 12px 10px;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 1px;
+    border-bottom: 1px solid var(--line);
+  }
+  .table-row {
+    display: grid;
+    grid-template-columns: 1.4fr 2fr .9fr;
+    gap: 12px;
+    align-items: center;
+    min-height: 54px;
+    padding: 0 12px;
+    border-bottom: 1px solid rgba(255,255,255,.045);
+    font-size: 10px;
+  }
+  .table-row.selected {
+    background: linear-gradient(90deg, rgba(99,242,207,.075), transparent);
+    box-shadow: inset 2px 0 0 var(--mint);
+  }
+  .table-row b { font-size: 11px; font-weight: 600; }
+  .table-row .mono { color: var(--muted); font-family: var(--mono); font-size: 9px; }
+  .table-row .date { color: var(--dim); font-family: var(--mono); font-size: 9px; }
+  .devices-foot {
+    display: flex; justify-content: flex-end; gap: 8px; padding-top: 16px;
+  }
+  .credential-window { width: 540px; }
+  .credential-window .win-body { padding: 22px 24px; }
+  .cred-field { margin-bottom: 13px; }
+  .cred-field label { display: block; color: var(--muted); font-size: 10px; margin-bottom: 7px; }
+  .cred-field div {
+    height: 42px; display: flex; align-items: center;
+    padding: 0 12px; border-radius: 11px;
+    background: rgba(6,10,16,.8); border: 1px solid var(--line);
+    color: var(--text); font-family: var(--mono); font-size: 10px;
+  }
+  .cred-field div.secret { color: var(--dim); letter-spacing: 3px; }
+
+  .tokens {
+    margin-bottom: 72px;
+  }
+  .token-grid {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr 1fr 1fr;
+    gap: 22px;
+  }
+  .token-card {
+    padding: 20px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(17,26,38,.72), rgba(9,13,20,.72));
+    border: 1px solid var(--line);
+  }
+  .token-card h4 {
+    margin: 0 0 14px;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    font-weight: 600;
+  }
+  .swatches { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .swatch {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px; border-radius: 10px;
+    background: rgba(255,255,255,.02);
+  }
+  .swatch i { width: 22px; height: 22px; border-radius: 7px; }
+  .swatch b { display: block; font-family: var(--mono); font-size: 8px; font-weight: 600; }
+  .swatch span { display: block; margin-top: 3px; color: var(--dim); font-size: 7px; }
+  .type-row { display: flex; align-items: baseline; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.045); }
+  .type-row:last-child { border-bottom: 0; }
+  .type-row b { font-size: 18px; letter-spacing: -.4px; }
+  .type-row span { color: var(--dim); font-family: var(--mono); font-size: 8px; }
+  .rule-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.045); font-size: 9px; }
+  .rule-row:last-child { border-bottom: 0; }
+  .rule-row span { color: var(--dim); }
+  .rule-row b { font-family: var(--mono); font-size: 8px; font-weight: 600; }
+
+  .analysis {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+  }
+  .analysis-col {
+    padding: 24px;
+    border-radius: 20px;
+    background: linear-gradient(180deg, rgba(17,26,38,.65), rgba(9,13,20,.65));
+    border: 1px solid var(--line);
+  }
+  .analysis-col h3 {
+    margin: 0 0 18px;
+    font-size: 18px;
+    letter-spacing: -.3px;
+  }
+  .analysis-col h3 span {
+    display: block;
+    margin-top: 5px;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 1.3px;
+  }
+  .analysis-item {
+    display: grid;
+    grid-template-columns: 24px 1fr;
+    gap: 11px;
+    padding: 11px 0;
+    border-top: 1px solid rgba(255,255,255,.05);
+  }
+  .analysis-item .mark {
+    width: 20px; height: 20px;
+    border-radius: 6px;
+    display: grid; place-items: center;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--coral);
+    background: rgba(255,107,129,.08);
+  }
+  .analysis-col.good .analysis-item .mark {
+    color: var(--mint);
+    background: rgba(99,242,207,.08);
+  }
+  .analysis-item b { display: block; font-size: 11px; margin-bottom: 4px; }
+  .analysis-item span { color: var(--muted); font-size: 10px; line-height: 1.65; }
+
+  .motion-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 22px;
+    margin-bottom: 72px;
+  }
+  .motion-card {
+    padding: 20px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(17,26,38,.72), rgba(9,13,20,.72));
+    border: 1px solid var(--line);
+  }
+  .motion-stage {
+    height: 154px;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    background:
+      radial-gradient(180px 120px at 50% 0%, rgba(99,242,207,.08), transparent 70%),
+      rgba(5,8,12,.72);
+    border: 1px solid rgba(255,255,255,.05);
+    margin-bottom: 14px;
+    overflow: hidden;
+    position: relative;
+  }
+  .motion-card h4 { margin: 0 0 7px; font-size: 12px; }
+  .motion-card p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.6; }
+  .motion-meta {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,.05);
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 8px;
+  }
+
+  @keyframes dialSpin { to { transform: rotate(360deg); } }
+  @keyframes pulseDot {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.7); opacity: .32; }
+  }
+  @keyframes successDraw {
+    0% { stroke-dashoffset: 42; }
+    42%, 100% { stroke-dashoffset: 0; }
+  }
+  @keyframes pressPop {
+    0%, 36%, 100% { transform: scale(1); }
+    46% { transform: scale(.955); }
+    54% { transform: scale(1.01); }
+  }
+  @keyframes scanLine {
+    0% { transform: translateY(-120%); opacity: 0; }
+    18% { opacity: 1; }
+    100% { transform: translateY(120%); opacity: 0; }
+  }
+
+  .motion-ring {
+    width: 96px; height: 96px;
+    border-radius: 50%;
+    position: relative;
+    background: conic-gradient(from -90deg, rgba(99,242,207,.08), rgba(99,242,207,.08));
+    animation: dialSpin 2.4s linear infinite;
+  }
+  .motion-ring::before {
+    content: "";
+    position: absolute;
+    inset: 7px;
+    border-radius: 50%;
+    background: #070b11;
+  }
+  .motion-ring::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: conic-gradient(from -90deg, var(--mint) 0 8%, transparent 8% 25%, var(--iris) 25% 33%, transparent 33% 50%, rgba(99,242,207,.55) 50% 58%, transparent 58%);
+    mask: radial-gradient(circle, transparent 66%, #000 67% 72%, transparent 73%);
+  }
+  .motion-dot {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--mint);
+    box-shadow: 0 0 16px rgba(99,242,207,.7);
+    animation: pulseDot 1.8s ease-in-out infinite;
+  }
+  .motion-check {
+    width: 84px; height: 84px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    background: rgba(99,242,207,.07);
+    border: 1px solid rgba(99,242,207,.28);
+  }
+  .motion-check svg { width: 44px; height: 44px; }
+  .motion-check path {
+    stroke-dasharray: 42;
+    stroke-dashoffset: 42;
+    animation: successDraw 2.4s ease-in-out infinite;
+  }
+  .motion-button {
+    width: 150px; height: 42px;
+    display: grid; place-items: center;
+    border-radius: 11px;
+    background: linear-gradient(135deg, #8af9dd, #46d6b8);
+    color: #03201b;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    animation: pressPop 2.6s ease-in-out infinite;
+    box-shadow: 0 10px 26px rgba(46,211,176,.18);
+  }
+  .motion-scan {
+    width: 150px; height: 94px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,.02);
+    position: relative;
+    overflow: hidden;
+  }
+  .motion-scan::before {
+    content: "";
+    position: absolute;
+    left: 12px; right: 12px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--mint), transparent);
+    box-shadow: 0 0 16px rgba(99,242,207,.6);
+    animation: scanLine 2.2s ease-in-out infinite;
+  }
+  .motion-scan span {
+    position: absolute;
+    left: 13px; top: 15px;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 1px;
+  }
+
+  .footnote {
+    margin-top: 34px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: .6px;
+  }
+</style>
+</head>
+<body>
+<main class="board">
+  <header class="board-head" data-section="head">
+    <div>
+      <div class="eyebrow">BANDKEY / DESIGN SYSTEM 02</div>
+      <h1>信任仪表 <span>Trust Instrument</span></h1>
+      <p>把“连接、身份、凭据”三个状态压缩成一个可读的解锁仪表。设计目标不是更像科幻终端，而是让用户在 1 秒内判断：现在能不能解锁、为什么不能、下一步做什么。</p>
+    </div>
+    <div class="head-meta">
+      <div><span>Scope</span><b>Android + Windows</b></div>
+      <div><span>Direction</span><b>Precision / Calm</b></div>
+      <div><span>Version</span><b>2.0 concept</b></div>
+    </div>
+  </header>
+
+  <section class="hero" data-section="hero">
+    <div class="phones">
+      <article class="phone">
+        <div class="phone-shell"><div class="phone-screen">
+          <div class="island"></div>
+          <div class="statusbar"><span>9:41</span><div class="status-icons"><i class="signal"></i><i class="battery"></i></div></div>
+          <div class="screen-body">
+            <div class="app-head">
+              <div class="brand">
+                <div class="brand-mark">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l7 4v5c0 4.4-3 7.4-7 9-4-1.6-7-4.6-7-9V7l7-4z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg>
+                </div>
+                <div><div class="brand-name">BANDKEY</div><div class="brand-sub">电脑钥匙</div></div>
+              </div>
+              <div class="icon-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21h-4v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3v-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+              </div>
+            </div>
+            <div class="greet">
+              <div class="greet-sub">晚上好，PKQ32</div>
+              <div class="greet-title">电脑<em>已就绪</em></div>
+            </div>
+            <div class="dial-wrap">
+              <div class="dial">
+                <svg viewBox="0 0 246 246">
+                  <circle cx="123" cy="123" r="104" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="2"/>
+                  <circle cx="123" cy="123" r="104" fill="none" stroke="var(--mint)" stroke-width="3" stroke-linecap="round" stroke-dasharray="105 548"/>
+                  <circle cx="123" cy="123" r="104" fill="none" stroke="var(--iris)" stroke-width="3" stroke-linecap="round" stroke-dasharray="105 548" transform="rotate(120 123 123)"/>
+                  <circle cx="123" cy="123" r="104" fill="none" stroke="rgba(99,242,207,.55)" stroke-width="3" stroke-linecap="round" stroke-dasharray="105 548" transform="rotate(240 123 123)"/>
+                  <circle cx="123" cy="123" r="88" fill="none" stroke="rgba(255,255,255,.045)" stroke-width="1"/>
+                </svg>
+                <div class="dial-ticks"></div>
+                <div class="dial-center">
+                  <div class="dial-kicker">READY</div>
+                  <div class="dial-main">手机已认证</div>
+                  <div class="dial-sub">LAPTOP-36V22FNS</div>
+                </div>
+              </div>
+            </div>
+            <div class="rail">
+              <div class="rail-row"><i class="rail-dot mint"></i><span class="rail-label">蓝牙通道</span><span class="rail-value">已连接</span><span class="rail-meta">-48 dBm</span></div>
+              <div class="rail-row"><i class="rail-dot iris"></i><span class="rail-label">设备身份</span><span class="rail-value">已认证</span><span class="rail-meta">P-256</span></div>
+              <div class="rail-row"><i class="rail-dot mint"></i><span class="rail-label">Windows 凭据</span><span class="rail-value">已保存</span><span class="rail-meta">LOCAL</span></div>
+            </div>
+            <button class="cta">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="10" width="14" height="10" rx="2.5"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/><circle cx="12" cy="15" r="1.2"/></svg>
+              <span class="cta-text">解 锁 电 脑<small>轻触后等待电脑响应</small></span>
+            </button>
+            <div class="micro">上次解锁 22:42 · 本机签名验证</div>
+          </div>
+          <nav class="tabbar">
+            <div class="tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="10" width="14" height="10" rx="2.5"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></svg><span>解锁</span></div>
+            <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5" width="16" height="14" rx="2.5"/><path d="M8 9h8M8 13h5"/></svg><span>设备</span></div>
+            <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.2.9A7 7 0 0 0 14 5.7L13.7 3h-3.4L10 5.7a7 7 0 0 0-2.7 1.3l-2.2-.9-2 3.4L5.1 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.2-.9A7 7 0 0 0 10 18.3l.3 2.7h3.4l.3-2.7a7 7 0 0 0 2.7-1.3l2.2.9 2-3.4L19 13a7 7 0 0 0 .1-1z"/></svg><span>设置</span></div>
+          </nav>
+        </div></div>
+        <div class="phone-caption"><b>01 / UNLOCK · READY</b><span>主操作回到拇指区，三环仪表直接表达“通道 / 身份 / 凭据”三项就绪。</span></div>
+      </article>
+
+      <article class="phone">
+        <div class="phone-shell"><div class="phone-screen">
+          <div class="island"></div>
+          <div class="statusbar"><span>9:41</span><div class="status-icons"><i class="signal"></i><i class="battery"></i></div></div>
+          <div class="screen-body">
+            <div class="pairing-head">
+              <div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 18l-6-6 6-6"/></svg></div>
+              <div class="step">PAIRING / 02</div>
+            </div>
+            <div class="pairing-title">配对这台电脑</div>
+            <div class="pairing-sub">在电脑托盘查看 6 位 PIN，然后输入到下方。</div>
+            <div class="device-card">
+              <div class="device-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="5" width="16" height="11" rx="2"/><path d="M2.5 19h19"/></svg></div>
+              <div class="device-copy"><b>LAPTOP-36V22FNS</b><span>Windows 11 · 蓝牙 LE</span></div>
+              <div class="connected">已连接</div>
+            </div>
+            <div class="otp-label">配对 PIN</div>
+            <div class="otp"><span>2</span><span>8</span><span>4</span><span>1</span><span class="active">9</span><span class="empty">·</span></div>
+            <div class="countdown"><span class="time">04:32</span><div class="bar"><i></i></div><span class="time">05:00</span></div>
+            <button class="cta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12l4 4L19 6"/></svg><span class="cta-text">确 认 配 对<small>将本机加入可信设备</small></span></button>
+            <div class="ghost-link">没有收到？ <b>重新发送请求</b></div>
+            <div class="note">PIN 只对本次配对有效。电脑会同时显示设备名称，确认不是陌生设备后再提交。</div>
+          </div>
+        </div></div>
+        <div class="phone-caption"><b>02 / PAIRING</b><span>6 位 PIN 分槽输入，设备身份、倒计时和风险提示放在同一视线内。</span></div>
+      </article>
+
+      <article class="phone">
+        <div class="phone-shell"><div class="phone-screen">
+          <div class="island"></div>
+          <div class="statusbar"><span>9:41</span><div class="status-icons"><i class="signal"></i><i class="battery"></i></div></div>
+          <div class="screen-body">
+            <div class="app-head">
+              <div><div class="brand-name">授权设备</div><div class="brand-sub" style="margin-top:5px">AUTHORIZED DEVICES</div></div>
+              <div class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg></div>
+            </div>
+            <div class="summary">
+              <div><div class="count">03<small>台</small></div><div class="label">设备可解锁本机</div></div>
+              <div class="sync">LAST SYNC<br>22:42</div>
+            </div>
+            <div class="device-list">
+              <div class="device-row current">
+                <div class="mini-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></div>
+                <div class="copy"><b>我的手机</b><span>Pixel 9 Pro · 蓝牙 LE</span></div>
+                <div class="badge-current">当前设备</div>
+              </div>
+              <div class="device-row">
+                <div class="mini-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></div>
+                <div class="copy"><b>备用 iPhone</b><span>上次使用 10-28 21:16</span></div>
+                <div class="end"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6l6 6-6 6"/></svg></div>
+              </div>
+              <div class="device-row">
+                <div class="mini-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 4h10v16H7z"/><path d="M9.5 7h5M9.5 10h5"/></svg></div>
+                <div class="copy"><b>办公室手环</b><span>上次使用 09-16 09:04</span></div>
+                <div class="end"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6l6 6-6 6"/></svg></div>
+              </div>
+            </div>
+            <div class="list-note">删除设备后，其私钥立即失效，无法再触发本机解锁。</div>
+          </div>
+          <nav class="tabbar">
+            <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="10" width="14" height="10" rx="2.5"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></svg><span>解锁</span></div>
+            <div class="tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5" width="16" height="14" rx="2.5"/><path d="M8 9h8M8 13h5"/></svg><span>设备</span></div>
+            <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.2.9A7 7 0 0 0 14 5.7L13.7 3h-3.4L10 5.7a7 7 0 0 0-2.7 1.3l-2.2-.9-2 3.4L5.1 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.2-.9A7 7 0 0 0 10 18.3l.3 2.7h3.4l.3-2.7a7 7 0 0 0 2.7-1.3l2.2.9 2-3.4L19 13a7 7 0 0 0 .1-1z"/></svg><span>设置</span></div>
+          </nav>
+        </div></div>
+        <div class="phone-caption"><b>03 / DEVICES</b><span>把“设备 ID”从主页面移出，改成可管理的授权列表，降低主页噪音。</span></div>
+      </article>
+    </div>
+
+    <aside class="manifesto">
+      <p class="big">不是更炫，<br>而是<span>更可信</span>。</p>
+      <p class="lead">现有界面把配对、连接、凭据、错误全部塞进一个长列表，用户必须读完才能知道能不能解锁。新的信息架构把“解锁”变成唯一主角，把配置和授权收进二级页面。</p>
+      <div class="principle"><div class="n">01</div><div><b>一个主状态</b><span>首页只回答“现在能否解锁”，其余信息降级为辅助。</span></div></div>
+      <div class="principle"><div class="n">02</div><div><b>三环仪表</b><span>蓝牙、身份、凭据分别占一段弧，缺口就是问题所在。</span></div></div>
+      <div class="principle"><div class="n">03</div><div><b>动作可预期</b><span>错误不再只显示异常文本，而是给出下一步操作。</span></div></div>
+      <div class="principle"><div class="n">04</div><div><b>克制的科技感</b><span>用一个信号色和一个身份色，减少霓虹描边与无意义动效。</span></div></div>
+    </aside>
+  </section>
+
+  <div class="section-label" data-section="phones">01 / Android · Secondary states</div>
+  <section class="phones-row" data-section="phones">
+    <article class="phone">
+      <div class="phone-shell"><div class="phone-screen">
+        <div class="island"></div>
+        <div class="statusbar"><span>9:41</span><div class="status-icons"><i class="signal"></i><i class="battery"></i></div></div>
+        <div class="screen-body">
+          <div class="app-head">
+            <div><div class="brand-name">连接与安全</div><div class="brand-sub" style="margin-top:5px">CONNECTION / SECURITY</div></div>
+            <div class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l7 4v5c0 4.4-3 7.4-7 9-4-1.6-7-4.6-7-9V7l7-4z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg></div>
+          </div>
+          <div class="segmented"><span class="active">蓝牙优先</span><span>局域网</span></div>
+          <div class="setting-card">
+            <div class="setting-head"><b>蓝牙 LE</b><span>已连接</span></div>
+            <div class="setting-desc">自动扫描电脑广播，失败时回退局域网 TCP。</div>
+            <div class="field-mock">LAPTOP-36V22FNS · -48 dBm</div>
+          </div>
+          <div class="setting-card">
+            <div class="setting-head"><b>服务地址</b><span>备用</span></div>
+            <div class="field-mock">ws://192.168.1.71:23234/bandkey</div>
+          </div>
+          <div class="setting-card">
+            <div class="setting-head"><b>安全参数</b><span>VERIFIED</span></div>
+            <div class="security-row"><span>签名算法</span><b>ECDSA P-256</b></div>
+            <div class="security-row"><span>私钥位置</span><b>ANDROID KEYSTORE</b></div>
+            <div class="security-row"><span>防重放</span><b>NONCE + TIMESTAMP</b></div>
+          </div>
+          <div class="setting-card">
+            <div class="setting-head"><b>Windows 凭据</b><span>已保存</span></div>
+            <div class="setting-desc">由电脑托盘设置，手机端不保存 Windows 密码。</div>
+          </div>
+          <div class="danger-link">解除本机配对</div>
+        </div>
+        <nav class="tabbar">
+          <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="10" width="14" height="10" rx="2.5"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></svg><span>解锁</span></div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5" width="16" height="14" rx="2.5"/><path d="M8 9h8M8 13h5"/></svg><span>设备</span></div>
+          <div class="tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.2.9A7 7 0 0 0 14 5.7L13.7 3h-3.4L10 5.7a7 7 0 0 0-2.7 1.3l-2.2-.9-2 3.4L5.1 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.2-.9A7 7 0 0 0 10 18.3l.3 2.7h3.4l.3-2.7a7 7 0 0 0 2.7-1.3l2.2.9 2-3.4L19 13a7 7 0 0 0 .1-1z"/></svg><span>设置</span></div>
+        </nav>
+      </div></div>
+      <div class="phone-caption"><b>04 / SETTINGS</b><span>通道、服务地址、安全参数分层，默认只暴露“蓝牙优先”。</span></div>
+    </article>
+
+    <article class="phone">
+      <div class="phone-shell"><div class="phone-screen">
+        <div class="island"></div>
+        <div class="statusbar"><span>9:41</span><div class="status-icons"><i class="signal"></i><i class="battery"></i></div></div>
+        <div class="screen-body">
+          <div class="pairing-head"><div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 18l-6-6 6-6"/></svg></div><div class="step">ERROR / 05</div></div>
+          <div class="error-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4l9 16H3L12 4z"/><path d="M12 9v5"/><circle cx="12" cy="17" r=".8" fill="currentColor" stroke="none"/></svg></div>
+          <div class="error-title">电脑当前未锁定</div>
+          <div class="error-text">解锁请求只在锁屏状态生效。请先锁屏，再回到手机重试。</div>
+          <div class="steps">
+            <div class="step-row"><div class="num">01</div><div><b>在电脑上按 Win + L</b><span>进入锁屏界面，保持服务运行</span></div></div>
+            <div class="step-row"><div class="num">02</div><div><b>回到手机点“重新尝试”</b><span>手机会重新签名并发送请求</span></div></div>
+            <div class="step-row"><div class="num">03</div><div><b>等待电脑自动进入桌面</b><span>通常 1–3 秒，不需要输入密码</span></div></div>
+          </div>
+          <button class="cta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span class="cta-text">重 新 尝 试<small>重新检测锁屏状态</small></span></button>
+          <div style="height:10px"></div>
+          <button class="ghost-btn">查看帮助</button>
+        </div>
+      </div></div>
+      <div class="phone-caption"><b>05 / ERROR</b><span>错误页从“异常文本”变成可执行的三步恢复路径。</span></div>
+    </article>
+
+    <article class="phone">
+      <div class="phone-shell"><div class="phone-screen">
+        <div class="island"></div>
+        <div class="statusbar"><span>9:41</span><div class="status-icons"><i class="signal"></i><i class="battery"></i></div></div>
+        <div class="screen-body">
+          <div class="pairing-head"><div class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></div><div class="step">SUCCESS / 06</div></div>
+          <div class="success-dial"><div class="success-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5l4.2 4.2L19 6.8"/></svg></div></div>
+          <div class="success-title">已解锁</div>
+          <div class="success-sub">电脑正在进入桌面，请稍候</div>
+          <div class="receipt">
+            <div class="receipt-row"><span>时间</span><b>22:42:30</b></div>
+            <div class="receipt-row"><span>设备</span><b>LAPTOP-36V22FNS</b></div>
+            <div class="receipt-row"><span>通道</span><b>BLE · -48 dBm</b></div>
+            <div class="receipt-row"><span>验证</span><b>ECDSA P-256 · OK</b></div>
+          </div>
+          <button class="cta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12l4 4L19 6"/></svg><span class="cta-text">完 成<small>返回解锁主页</small></span></button>
+        </div>
+      </div></div>
+      <div class="phone-caption"><b>06 / SUCCESS</b><span>成功态给出可核对的回执：时间、设备、通道、算法，而不是只弹一个勾。</span></div>
+    </article>
+  </section>
+
+  <div class="section-label" data-section="desktop">02 / Windows · Control center & dialogs</div>
+  <section class="desktop-row" data-section="desktop">
+    <div>
+      <div class="window tray">
+        <div class="win-title"><div class="win-brand">◈ BANDKEY <span>/ CONTROL</span></div><div class="win-controls">— ×</div></div>
+        <div class="win-body">
+          <div class="tray-status"><div class="status-pill">服务运行中</div><div class="tray-version">v1.5.1</div></div>
+          <div class="tray-hero">
+            <div><h3>本机已就绪</h3><p>手机钥匙已连接<br>锁屏后可直接确认解锁</p></div>
+            <div class="mini-ring"><div><b>3/3</b><span>READY</span></div></div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><span>蓝牙广播</span><b class="ok">已开启</b></div>
+            <div class="metric"><span>已配对</span><b>3 台</b></div>
+            <div class="metric"><span>凭据</span><b class="ok">已保存</b></div>
+          </div>
+          <div class="tray-actions">
+            <div class="tray-action primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v18M3 12h18"/></svg>查看配对 PIN</div>
+            <div class="tray-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5" width="16" height="14" rx="2.5"/><path d="M8 9h8M8 13h5"/></svg>已配对设备</div>
+            <div class="tray-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="10" width="14" height="10" rx="2.5"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></svg>设置解锁凭据</div>
+            <div class="tray-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 12a8 8 0 0 1 13.7-5.7L20 8.5"/><path d="M20 4v4.5h-4.5"/><path d="M20 12a8 8 0 0 1-13.7 5.7L4 15.5"/><path d="M4 20v-4.5h4.5"/></svg>重新广播</div>
+            <div class="tray-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5"/></svg>打开日志</div>
+          </div>
+          <div class="tray-foot"><span>LOCAL ONLY · DPAPI</span><span>Windows 11 · x64</span></div>
+        </div>
+      </div>
+      <div class="phone-caption"><b>07 / TRAY POPOVER</b><span>双击托盘从“弹菜单”变为控制中心：状态、指标、动作一屏完成。</span></div>
+    </div>
+
+    <div>
+      <div class="window pair-window">
+        <div class="win-title"><div class="win-brand">◈ BANDKEY <span>/ PAIRING</span></div><div class="win-controls">×</div></div>
+        <div class="win-body">
+          <div class="dialog-kicker">PAIRING REQUEST / 新设备</div>
+          <h2 class="dialog-title">手机正在请求配对</h2>
+          <p class="dialog-sub">确认设备名称后，把下面的 PIN 输入到手机端。</p>
+          <div class="device-card" style="margin-bottom:16px">
+            <div class="device-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></div>
+            <div class="device-copy"><b>我的手机</b><span>Android · BLE REQUEST</span></div>
+            <div class="connected">在线</div>
+          </div>
+          <div class="pin-box">
+            <div class="pin-label">ONE-TIME PAIRING CODE</div>
+            <div class="pin-value">284 196</div>
+            <div class="pin-timer"><div class="bar"><i></i></div><span>04:32</span></div>
+          </div>
+          <div class="dialog-note">PIN 只对本次配对有效，请勿通过聊天或截图发送给他人。配对成功后该 PIN 立即失效。</div>
+          <div class="dialog-buttons"><button class="btn">关闭</button><button class="btn primary">复制 PIN</button></div>
+        </div>
+      </div>
+      <div class="phone-caption"><b>08 / PAIRING DIALOG</b><span>大号 PIN + 倒计时 + 设备身份，确保用户核对的是正确设备。</span></div>
+    </div>
+
+    <div>
+      <div class="lock-stage">
+        <div class="lock-clock"><div class="time">22:42</div><div class="date">11 月 10 日 · 星期一</div></div>
+        <div class="lock-card">
+          <div class="lock-brand">
+            <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l7 4v5c0 4.4-3 7.4-7 9-4-1.6-7-4.6-7-9V7l7-4z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg></div>
+            <div><b>BANDKEY</b><span>手机钥匙</span></div>
+          </div>
+          <div class="lock-title">等待手机确认</div>
+          <div class="lock-sub">已连接 LAPTOP-36V22FNS<br>请在手机上确认本次解锁</div>
+          <div class="lock-progress"><i class="on"></i><i class="on"></i><i></i></div>
+          <div class="lock-status"><span>SECURE CHANNEL</span><span>VERIFIED</span></div>
+          <div class="lock-btn">使用手机解锁</div>
+          <div class="lock-alt">使用密码登录</div>
+        </div>
+      </div>
+      <div class="phone-caption"><b>09 / WINDOWS LOCK TILE</b><span>CP 只能使用文本与提交按钮，因此用“状态 + 进度 + 主按钮”表达，不依赖动画。</span></div>
+    </div>
+  </section>
+
+  <section class="desktop-row" data-section="desktop">
+    <div>
+      <div class="window devices-window">
+        <div class="win-title"><div class="win-brand">◈ BANDKEY <span>/ DEVICES</span></div><div class="win-controls">×</div></div>
+        <div class="win-body">
+          <div class="dialog-kicker">AUTHORIZED DEVICES / 03</div>
+          <h2 class="dialog-title">已授权设备</h2>
+          <p class="dialog-sub">这些设备持有配对私钥，可以签名触发本机解锁。</p>
+          <div class="table-head"><span>设备名称</span><span>设备 ID</span><span>添加时间</span></div>
+          <div class="table-row selected"><b>我的手机</b><span class="mono">bk_7f3a…9c21</span><span class="date">2026-11-09 22:42</span></div>
+          <div class="table-row"><b>备用 iPhone</b><span class="mono">bk_2d81…4a70</span><span class="date">2026-10-28 21:16</span></div>
+          <div class="table-row"><b>办公室手环</b><span class="mono">bk_9b04…e18c</span><span class="date">2026-09-16 09:04</span></div>
+          <div class="devices-foot"><button class="btn">关闭</button><button class="btn">刷新</button><button class="btn danger">删除所选</button></div>
+        </div>
+      </div>
+      <div class="phone-caption"><b>10 / DEVICES WINDOW</b><span>设备 ID 用等宽字体压缩展示，选中态用左侧信号条，不用整行高饱和填充。</span></div>
+    </div>
+
+    <div>
+      <div class="window credential-window">
+        <div class="win-title"><div class="win-brand">◈ BANDKEY <span>/ CREDENTIAL</span></div><div class="win-controls">×</div></div>
+        <div class="win-body">
+          <div class="dialog-kicker">WINDOWS CREDENTIAL</div>
+          <h2 class="dialog-title">设置解锁凭据</h2>
+          <p class="dialog-sub">锁屏后由手机私钥签名触发自动登录，凭据只保存在本机。</p>
+          <div class="cred-field"><label>Windows 账户</label><div>LAPTOP-36V22FNS\PKQ32</div></div>
+          <div class="cred-field"><label>Windows 登录密码</label><div class="secret">••••••••••••</div></div>
+          <div class="cred-field"><label>确认密码</label><div class="secret">••••••••••••</div></div>
+          <div class="dialog-note">请填写登录 Windows 时使用的账户密码。Windows Hello PIN、指纹、人脸都不能用于后台解锁。</div>
+          <div class="dialog-buttons"><button class="btn">取消</button><button class="btn primary">验证并保存</button></div>
+        </div>
+      </div>
+      <div class="phone-caption"><b>11 / CREDENTIAL DIALOG</b><span>把“密码不是 PIN”从脚注提升为显式提示，减少保存失败。</span></div>
+    </div>
+
+    <div class="analysis-col" style="width:540px">
+      <h3>组件落地建议<span>IMPLEMENTATION NOTES</span></h3>
+      <div class="analysis-item"><div class="mark">C</div><div><b>Compose</b><span>拆出 TrustDial、StatusRail、PrimaryAction、BottomNav、PairingSheet；状态用 sealed class 驱动，避免一个 20KB 的 BandKeyScreen。</span></div></div>
+      <div class="analysis-item"><div class="mark">W</div><div><b>WinForms</b><span>保留 TechForm 壳，新增 TechCard、TechStatusPill、TechSegmented、TechPinDisplay；圆角与描边用现有 OnPaint，不引入 WPF。</span></div></div>
+      <div class="analysis-item"><div class="mark">P</div><div><b>Credential Provider</b><span>LogonUI 只可靠支持文本字段和提交按钮；锁屏卡片保持两字段，动画仅用状态文本轮换。</span></div></div>
+      <div class="analysis-item"><div class="mark">A</div><div><b>可访问性</b><span>主操作 ≥ 56dp，正文对比度 ≥ 4.5:1；状态同时用颜色、文案和图标表达，不依赖单一色相。</span></div></div>
+    </div>
+  </section>
+
+  <div class="section-label" data-section="tokens">03 / Design tokens</div>
+  <section class="tokens" data-section="tokens">
+    <div class="token-grid">
+      <div class="token-card">
+        <h4>COLOR / 语义色</h4>
+        <div class="swatches">
+          <div class="swatch"><i style="background:#63f2cf"></i><div><b>#63F2CF</b><span>就绪 / 成功</span></div></div>
+          <div class="swatch"><i style="background:#8c7bff"></i><div><b>#8C7BFF</b><span>身份 / 安全</span></div></div>
+          <div class="swatch"><i style="background:#ffb86b"></i><div><b>#FFB86B</b><span>等待 / 警告</span></div></div>
+          <div class="swatch"><i style="background:#ff6b81"></i><div><b>#FF6B81</b><span>错误 / 危险</span></div></div>
+          <div class="swatch"><i style="background:#0d131c;border:1px solid #2a3542"></i><div><b>#0D131C</b><span>面板 / 卡片</span></div></div>
+          <div class="swatch"><i style="background:#05070b;border:1px solid #2a3542"></i><div><b>#05070B</b><span>背景 / 深空</span></div></div>
+        </div>
+      </div>
+      <div class="token-card">
+        <h4>TYPE / 字阶</h4>
+        <div class="type-row"><b style="font-size:28px">电脑已就绪</b><span>28 / 800</span></div>
+        <div class="type-row"><b style="font-size:20px">手机已认证</b><span>20 / 800</span></div>
+        <div class="type-row"><b style="font-size:13px">蓝牙通道 · 已连接</b><span>12 / 500</span></div>
+        <div class="type-row"><b style="font-family:var(--mono);font-size:11px">LAPTOP-36V22FNS</b><span>MONO / 10</span></div>
+      </div>
+      <div class="token-card">
+        <h4>SPACE / RADIUS</h4>
+        <div class="rule-row"><span>页面边距</span><b>22px</b></div>
+        <div class="rule-row"><span>卡片间距</span><b>12–16px</b></div>
+        <div class="rule-row"><span>卡片圆角</span><b>18–20px</b></div>
+        <div class="rule-row"><span>按钮高度</span><b>56–58px</b></div>
+        <div class="rule-row"><span>最小点击区</span><b>44×44px</b></div>
+      </div>
+      <div class="token-card">
+        <h4>MOTION / 动效</h4>
+        <div class="rule-row"><span>仪表呼吸</span><b>2.4s / LOOP</b></div>
+        <div class="rule-row"><span>按钮按下</span><b>120ms / EASE</b></div>
+        <div class="rule-row"><span>成功扫光</span><b>600ms / ONCE</b></div>
+        <div class="rule-row"><span>页面转场</span><b>220ms / EASE-OUT</b></div>
+        <div class="rule-row"><span>降低动效</span><b>尊重系统设置</b></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="section-label" data-section="tokens">04 / Before & after</div>
+  <section class="analysis" data-section="tokens">
+    <div class="analysis-col">
+      <h3>现状问题<span>CURRENT ISSUES</span></h3>
+      <div class="analysis-item"><div class="mark">01</div><div><b>所有状态堆在一个滚动页</b><span>配对、设备、连接、凭据、错误提示同时出现，用户不知道先看哪里。</span></div></div>
+      <div class="analysis-item"><div class="mark">02</div><div><b>雷达图语义模糊</b><span>动画一直在动，但无法说明是蓝牙、身份还是凭据出了问题。</span></div></div>
+      <div class="analysis-item"><div class="mark">03</div><div><b>主操作不够稳定</b><span>“解锁电脑”按钮在长页面中段，状态变化时位置还会跳动。</span></div></div>
+      <div class="analysis-item"><div class="mark">04</div><div><b>错误只给原文</b><span>`computer_not_locked` 等异常被拼成一段文本，没有恢复步骤。</span></div></div>
+      <div class="analysis-item"><div class="mark">05</div><div><b>Windows 端层级偏平</b><span>托盘菜单、弹窗、表格各自为政，缺少统一的状态总览。</span></div></div>
+    </div>
+    <div class="analysis-col good">
+      <h3>设计决策<span>DESIGN DECISIONS</span></h3>
+      <div class="analysis-item"><div class="mark">01</div><div><b>三段式信息架构</b><span>解锁 / 设备 / 设置；配对作为模态流程，不再常驻首页。</span></div></div>
+      <div class="analysis-item"><div class="mark">02</div><div><b>三环 = 三状态</b><span>每段弧对应通道、身份、凭据；缺口即问题，中心文案给出结论。</span></div></div>
+      <div class="analysis-item"><div class="mark">03</div><div><b>主按钮固定在拇指区</b><span>无论状态如何，解锁按钮位置稳定，禁用时给出原因。</span></div></div>
+      <div class="analysis-item"><div class="mark">04</div><div><b>错误即操作</b><span>每个错误映射到“先做什么、再做什么”，并提供重新尝试。</span></div></div>
+      <div class="analysis-item"><div class="mark">05</div><div><b>统一 PC 控制中心</b><span>托盘双击打开状态总览，弹窗沿用同一套标题、卡片、按钮和表格。</span></div></div>
+    </div>
+  </section>
+
+  <div class="section-label" data-section="motion">05 / Motion</div>
+  <section class="motion-grid" data-section="motion">
+    <div class="motion-card">
+      <div class="motion-stage"><div class="motion-ring"></div></div>
+      <h4>仪表呼吸</h4>
+      <p>三段弧缓慢旋转，只表达“正在监听”；就绪后停止旋转，避免持续干扰。</p>
+      <div class="motion-meta"><span>2.4s / LOOP</span><span>LINEAR</span></div>
+    </div>
+    <div class="motion-card">
+      <div class="motion-stage"><div class="motion-dot"></div></div>
+      <h4>状态点脉冲</h4>
+      <p>蓝牙、身份、凭据就绪时轻微呼吸；错误状态改为静态红色，不脉冲。</p>
+      <div class="motion-meta"><span>1.8s / LOOP</span><span>EASE-IN-OUT</span></div>
+    </div>
+    <div class="motion-card">
+      <div class="motion-stage"><div class="motion-check"><svg viewBox="0 0 24 24" fill="none" stroke="var(--mint)" stroke-width="2"><path d="M5 12.5l4.2 4.2L19 6.8"/></svg></div></div>
+      <h4>成功描边</h4>
+      <p>解锁成功后一次性描出勾选，外圈同时扩散一次；不循环，不打断下一步操作。</p>
+      <div class="motion-meta"><span>650ms / ONCE</span><span>EASE-OUT</span></div>
+    </div>
+    <div class="motion-card">
+      <div class="motion-stage"><div class="motion-button">解 锁 电 脑</div></div>
+      <h4>按压反馈</h4>
+      <p>主按钮按下缩放到 0.96，释放回到 1；忙碌时替换为环形进度，不抖动布局。</p>
+      <div class="motion-meta"><span>120ms / PRESS</span><span>SPRING</span></div>
+    </div>
+    <div class="motion-card">
+      <div class="motion-stage"><div class="motion-scan"><span>SECURE CHANNEL</span></div></div>
+      <h4>扫描线</h4>
+      <p>仅用于“正在验证”状态，2.2 秒从上到下扫过一次；完成后立即停止。</p>
+      <div class="motion-meta"><span>2.2s / BUSY</span><span>EASE-IN-OUT</span></div>
+    </div>
+    <div class="motion-card">
+      <div class="motion-stage"><div class="pin-value" style="font-size:28px;letter-spacing:6px;color:var(--mint);margin:0;text-indent:6px">284 196</div></div>
+      <h4>PIN 槽位</h4>
+      <p>输入一位时该槽位放大 1.06 并亮起，光标以 1s 周期闪烁；错误时整体横向轻微震动。</p>
+      <div class="motion-meta"><span>160ms / SLOT</span><span>SPRING</span></div>
+    </div>
+    <div class="motion-card">
+      <div class="motion-stage" style="align-content:center;gap:10px;display:grid">
+        <div style="width:150px;height:6px;border-radius:99px;background:rgba(255,255,255,.06);overflow:hidden"><div style="width:74%;height:100%;background:linear-gradient(90deg,var(--mint),var(--iris));border-radius:99px"></div></div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--dim);letter-spacing:1px">00:00 — 05:00</div>
+      </div>
+      <h4>倒计时</h4>
+      <p>用宽度变化代替数字跳动；最后 60 秒转橙色，归零时停止并显示“重新发起”。</p>
+      <div class="motion-meta"><span>1s / TICK</span><span>LINEAR</span></div>
+    </div>
+    <div class="motion-card">
+      <div class="motion-stage" style="align-content:center;gap:8px;display:grid">
+        <div style="width:86px;height:54px;border-radius:12px;border:1px solid rgba(99,242,207,.25);background:rgba(99,242,207,.04);display:grid;place-items:center;color:var(--mint);font-family:var(--mono);font-size:9px">SLIDE IN</div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--dim);letter-spacing:1px">220ms / EASE-OUT</div>
+      </div>
+      <h4>页面转场</h4>
+      <p>配对页从底部滑入，错误页淡入；返回时反向，不使用夸张的 3D 翻转。</p>
+      <div class="motion-meta"><span>220ms / ROUTE</span><span>EASE-OUT</span></div>
+    </div>
+  </section>
+
+  <div class="footnote"><span>BANDKEY 2.0 · TRUST INSTRUMENT</span><span>DESIGN EXPLORATION · 2026.11</span></div>
+</main>
+<script>
+  const view = location.hash.replace('#', '') || new URLSearchParams(location.search).get('view');
+  if (view && view !== 'all') {
+    document.querySelectorAll('[data-section]').forEach((section) => {
+      if (section.dataset.section !== view && section.dataset.section !== 'head') {
+        section.remove();
+      }
+    });
+    document.body.classList.add('view-' + view);
+  }
+</script>
+</body>
+</html>

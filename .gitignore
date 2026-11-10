@@ -1,0 +1,43 @@
+# Build outputs
+**/bin/
+**/obj/
+**/build/
+**/Output/
+**/.gradle/
+**/.kotlin/
+**/.idea/
+**/__pycache__/
+*.pyc
+
+# Android signing and local SDK configuration
+*.keystore
+*.jks
+keystore.properties
+local.properties
+
+# Certificates and secrets
+*.pfx
+*.p12
+*.pem
+*.key
+.env
+.env.*
+
+# Installers and package outputs
+*.apk
+*.aab
+*.msi
+*.exe
+*.pdb
+
+# IDE and OS files
+.vs/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak

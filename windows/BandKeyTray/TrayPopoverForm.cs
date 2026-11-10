@@ -1,0 +1,474 @@
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace BandKeyTray;
+
+internal sealed record BleUiState(string Status, bool Advertising, int ConnectedClients);
+
+internal sealed class TrayPopoverForm : TechForm
+{
+    private readonly ServiceApi _api;
+    private readonly Func<BleUiState> _bleState;
+    private readonly Action _showPairing;
+    private readonly Action _showDevices;
+    private readonly Action _showCredential;
+    private readonly Action _restartBle;
+    private readonly Action _openLog;
+    private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = 1200 };
+
+    private readonly TechStatusPill _servicePill = new();
+    private readonly Label _version = new();
+    private readonly Label _heroKicker = new();
+    private readonly Label _heroTitle = new();
+    private readonly Label _heroDescription = new();
+    private readonly TechMiniRing _trustRing = new();
+    private readonly TechMetric _bleMetric = new();
+    private readonly TechMetric _pairedMetric = new();
+    private readonly TechMetric _credentialMetric = new();
+    private readonly TechActionButton _pairingAction = new();
+    private readonly TechActionButton _devicesAction = new();
+    private readonly TechActionButton _credentialAction = new();
+    private readonly TechActionButton _refreshAction = new();
+    private readonly TechActionButton _logAction = new();
+
+    private PairingInfo? _pairing;
+    private bool _refreshing;
+
+    public TrayPopoverForm(
+        ServiceApi api,
+        Func<BleUiState> bleState,
+        Action showPairing,
+        Action showDevices,
+        Action showCredential,
+        Action restartBle,
+        Action openLog)
+        : base("控制中心", new Size(476, 572))
+    {
+        _api = api;
+        _bleState = bleState;
+        _showPairing = showPairing;
+        _showDevices = showDevices;
+        _showCredential = showCredential;
+        _restartBle = restartBle;
+        _openLog = openLog;
+
+        ShowInTaskbar = false;
+        StartPosition = FormStartPosition.Manual;
+        BuildContent();
+
+        _pollTimer.Tick += (_, _) => _ = RefreshAsync();
+        Shown += (_, _) =>
+        {
+            _pollTimer.Start();
+            _ = RefreshAsync();
+        };
+        FormClosed += (_, _) => _pollTimer.Dispose();
+    }
+
+    public void ShowNearTray()
+    {
+        var screen = Screen.FromPoint(Cursor.Position).WorkingArea;
+        var x = Cursor.Position.X - Width / 2;
+        x = Math.Clamp(x, screen.Left + 12, screen.Right - Width - 12);
+        var y = screen.Bottom - Height - 12;
+        Location = new Point(x, y);
+        Show();
+        Activate();
+    }
+
+    private void BuildContent()
+    {
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 8,
+            BackColor = TechPalette.Background,
+            Margin = new Padding(0)
+        };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 31));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 158));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 14));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 166));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+
+        var statusRow = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = TechPalette.Background,
+            Margin = new Padding(0)
+        };
+        _servicePill.Location = new Point(0, 1);
+        _servicePill.SetStatus("正在检查服务", TechPalette.Muted);
+        _version.Text = "v" + (typeof(TrayPopoverForm).Assembly.GetName().Version?.ToString(3) ?? "1.6.0");
+        _version.AutoSize = true;
+        _version.Font = TechPalette.Mono;
+        _version.ForeColor = TechPalette.Dim;
+        _version.BackColor = Color.Transparent;
+        _version.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        _version.Location = new Point(statusRow.Width - _version.Width, 6);
+        statusRow.Controls.Add(_servicePill);
+        statusRow.Controls.Add(_version);
+        statusRow.Resize += (_, _) => _version.Left = Math.Max(0, statusRow.Width - _version.Width);
+
+        var hero = new TechCard
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0),
+            Padding = new Padding(20, 14, 14, 14),
+            Radius = 14
+        };
+        var heroLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0)
+        };
+        heroLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        heroLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 124));
+        heroLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var heroCopy = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 4,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0)
+        };
+        heroCopy.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        heroCopy.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        heroCopy.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        heroCopy.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        heroCopy.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
+
+        _heroKicker.Text = "TRUST INSTRUMENT";
+        _heroKicker.AutoSize = false;
+        _heroKicker.Dock = DockStyle.Fill;
+        _heroKicker.Font = TechPalette.Caption;
+        _heroKicker.ForeColor = TechPalette.Dim;
+        _heroKicker.BackColor = Color.Transparent;
+        _heroKicker.TextAlign = ContentAlignment.MiddleLeft;
+        _heroKicker.Margin = new Padding(0);
+
+        _heroTitle.Text = "正在检查本机状态";
+        _heroTitle.AutoSize = false;
+        _heroTitle.Dock = DockStyle.Fill;
+        _heroTitle.Font = new Font("Microsoft YaHei UI", 17f, FontStyle.Bold);
+        _heroTitle.ForeColor = TechPalette.Text;
+        _heroTitle.BackColor = Color.Transparent;
+        _heroTitle.TextAlign = ContentAlignment.MiddleLeft;
+        _heroTitle.Margin = new Padding(0);
+
+        _heroDescription.Text = "正在读取服务、设备与凭据状态。";
+        _heroDescription.AutoSize = false;
+        _heroDescription.Dock = DockStyle.Fill;
+        _heroDescription.Font = TechPalette.Body;
+        _heroDescription.ForeColor = TechPalette.Muted;
+        _heroDescription.BackColor = Color.Transparent;
+        _heroDescription.TextAlign = ContentAlignment.TopLeft;
+        _heroDescription.Margin = new Padding(0, 2, 12, 0);
+
+        var mode = new Label
+        {
+            Text = "LOCAL CHANNEL · ECDSA P-256",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            Font = TechPalette.Caption,
+            ForeColor = TechPalette.Dim,
+            BackColor = Color.Transparent,
+            TextAlign = ContentAlignment.BottomLeft,
+            Margin = new Padding(0)
+        };
+
+        heroCopy.Controls.Add(_heroKicker, 0, 0);
+        heroCopy.Controls.Add(_heroTitle, 0, 1);
+        heroCopy.Controls.Add(_heroDescription, 0, 2);
+        heroCopy.Controls.Add(mode, 0, 3);
+
+        _trustRing.Dock = DockStyle.Fill;
+        _trustRing.Margin = new Padding(4, 4, 0, 4);
+        heroLayout.Controls.Add(heroCopy, 0, 0);
+        heroLayout.Controls.Add(_trustRing, 1, 0);
+        hero.Controls.Add(heroLayout);
+
+        var metrics = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 1,
+            BackColor = TechPalette.Background,
+            Margin = new Padding(0)
+        };
+        metrics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333f));
+        metrics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333f));
+        metrics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.334f));
+        metrics.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        _bleMetric.Caption = "蓝牙广播";
+        _bleMetric.Value = "检查中";
+        _bleMetric.Dock = DockStyle.Fill;
+        _bleMetric.Margin = new Padding(0, 0, 5, 0);
+        _pairedMetric.Caption = "已配对";
+        _pairedMetric.Value = "—";
+        _pairedMetric.Dock = DockStyle.Fill;
+        _pairedMetric.Margin = new Padding(3, 0, 3, 0);
+        _credentialMetric.Caption = "解锁凭据";
+        _credentialMetric.Value = "检查中";
+        _credentialMetric.Dock = DockStyle.Fill;
+        _credentialMetric.Margin = new Padding(5, 0, 0, 0);
+        metrics.Controls.Add(_bleMetric, 0, 0);
+        metrics.Controls.Add(_pairedMetric, 1, 0);
+        metrics.Controls.Add(_credentialMetric, 2, 0);
+
+        var actions = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 3,
+            BackColor = TechPalette.Background,
+            Margin = new Padding(0)
+        };
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+        actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+        actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+
+        ConfigureAction(_pairingAction, "查看配对 PIN", TechActionGlyph.Key, true);
+        _pairingAction.SubText = "等待手机发起配对";
+        _pairingAction.Dock = DockStyle.Fill;
+        _pairingAction.Margin = new Padding(0, 0, 0, 7);
+        actions.SetColumnSpan(_pairingAction, 2);
+
+        ConfigureAction(_devicesAction, "已配对设备", TechActionGlyph.Devices, false);
+        _devicesAction.SubText = "设备管理";
+        _devicesAction.Dock = DockStyle.Fill;
+        _devicesAction.Margin = new Padding(0, 0, 5, 5);
+
+        ConfigureAction(_credentialAction, "设置解锁凭据", TechActionGlyph.Lock, false);
+        _credentialAction.SubText = "Windows 账户密码";
+        _credentialAction.Dock = DockStyle.Fill;
+        _credentialAction.Margin = new Padding(5, 0, 0, 5);
+
+        ConfigureAction(_refreshAction, "重新广播", TechActionGlyph.Refresh, false);
+        _refreshAction.SubText = "蓝牙外设";
+        _refreshAction.Dock = DockStyle.Fill;
+        _refreshAction.Margin = new Padding(0, 0, 5, 0);
+
+        ConfigureAction(_logAction, "打开日志", TechActionGlyph.Log, false);
+        _logAction.SubText = "LOCAL ONLY";
+        _logAction.Dock = DockStyle.Fill;
+        _logAction.Margin = new Padding(5, 0, 0, 0);
+
+        actions.Controls.Add(_pairingAction, 0, 0);
+        actions.Controls.Add(_devicesAction, 0, 1);
+        actions.Controls.Add(_credentialAction, 1, 1);
+        actions.Controls.Add(_refreshAction, 0, 2);
+        actions.Controls.Add(_logAction, 1, 2);
+
+        var footer = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = TechPalette.Background,
+            Margin = new Padding(0)
+        };
+        var local = new Label
+        {
+            Text = "LOCAL ONLY · DPAPI",
+            AutoSize = true,
+            Font = TechPalette.Caption,
+            ForeColor = TechPalette.Dim,
+            BackColor = Color.Transparent,
+            Location = new Point(0, 4)
+        };
+        var platform = new Label
+        {
+            Text = "Windows 11 · x64",
+            AutoSize = true,
+            Font = TechPalette.Caption,
+            ForeColor = TechPalette.Dim,
+            BackColor = Color.Transparent,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Location = new Point(footer.Width - 120, 4)
+        };
+        footer.Controls.Add(local);
+        footer.Controls.Add(platform);
+        footer.Resize += (_, _) => platform.Left = Math.Max(0, footer.Width - platform.Width);
+
+        root.Controls.Add(statusRow, 0, 0);
+        root.Controls.Add(hero, 0, 2);
+        root.Controls.Add(metrics, 0, 4);
+        root.Controls.Add(actions, 0, 5);
+        root.Controls.Add(footer, 0, 7);
+
+        _pairingAction.Click += (_, _) => _showPairing();
+        _devicesAction.Click += (_, _) => _showDevices();
+        _credentialAction.Click += (_, _) => _showCredential();
+        _refreshAction.Click += (_, _) => _restartBle();
+        _logAction.Click += (_, _) => _openLog();
+
+        Body.Controls.Add(root);
+    }
+
+    private static void ConfigureAction(
+        TechActionButton button,
+        string text,
+        TechActionGlyph glyph,
+        bool primary)
+    {
+        button.Text = text;
+        button.Glyph = glyph;
+        button.Primary = primary;
+        button.Height = primary ? 52 : 48;
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_refreshing || IsDisposed)
+        {
+            return;
+        }
+
+        _refreshing = true;
+        try
+        {
+            var online = await _api.IsOnlineAsync();
+            ServiceStatus? status = null;
+            PairingInfo? pairing = null;
+            if (online)
+            {
+                status = await _api.GetStatusAsync();
+                pairing = await _api.GetPairingAsync();
+            }
+
+            if (IsDisposed)
+            {
+                return;
+            }
+
+            _pairing = pairing;
+            ApplyState(online, status, pairing);
+        }
+        catch (Exception ex)
+        {
+            TrayLog.Write("control center refresh failed: " + ex.Message);
+            if (!IsDisposed)
+            {
+                ApplyState(false, null, null);
+            }
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
+
+    private void ApplyState(bool online, ServiceStatus? status, PairingInfo? pairing)
+    {
+        var ble = _bleState();
+        var paired = status?.PairedCount ?? 0;
+        var credentialSet = status?.CredentialSet == true;
+        var rejected = status?.CredentialRejected == true;
+        var ready = online && status?.Ready == true && !rejected;
+        var trustCount = (online ? 1 : 0)
+                         + (paired > 0 ? 1 : 0)
+                         + (credentialSet ? 1 : 0);
+
+        if (!online)
+        {
+            _servicePill.SetStatus("服务未运行", TechPalette.Danger);
+            _heroTitle.Text = "电脑钥匙服务离线";
+            _heroDescription.Text = "请启动 BandKeyService，或在服务管理器中重新启动。";
+            _trustRing.Tone = TechPalette.Danger;
+        }
+        else if (rejected)
+        {
+            _servicePill.SetStatus("凭据已失效", TechPalette.Danger);
+            _heroTitle.Text = "Windows 拒绝了凭据";
+            _heroDescription.Text = "请重新保存 Windows 登录密码，再尝试自动解锁。";
+            _trustRing.Tone = TechPalette.Danger;
+        }
+        else if (ready)
+        {
+            _servicePill.SetStatus("服务运行中", TechPalette.Mint);
+            _heroTitle.Text = "本机已就绪";
+            _heroDescription.Text = ble.ConnectedClients > 0
+                ? $"手机通道已连接 · {ble.ConnectedClients} 台在线\n锁屏后可以直接确认解锁"
+                : "手机钥匙已配对\n锁屏后可以直接确认解锁";
+            _trustRing.Tone = TechPalette.Mint;
+        }
+        else if (paired == 0)
+        {
+            _servicePill.SetStatus("等待配对", TechPalette.Warning);
+            _heroTitle.Text = ble.ConnectedClients > 0 ? "手机已连接" : "等待手机配对";
+            _heroDescription.Text = "在手机上发起配对\n电脑会显示 6 位一次性 PIN";
+            _trustRing.Tone = TechPalette.Violet;
+        }
+        else if (!credentialSet)
+        {
+            _servicePill.SetStatus("还差解锁凭据", TechPalette.Warning);
+            _heroTitle.Text = "手机已绑定，凭据未保存";
+            _heroDescription.Text = "保存 Windows 账户密码后\n才能进入自动解锁链路";
+            _trustRing.Tone = TechPalette.Warning;
+        }
+        else
+        {
+            _servicePill.SetStatus("部分服务未就绪", TechPalette.Warning);
+            _heroTitle.Text = "通道正在准备";
+            _heroDescription.Text = "服务在线，但锁屏组件尚未报告就绪。";
+            _trustRing.Tone = TechPalette.Warning;
+        }
+
+        _trustRing.Value = trustCount / 3f;
+        _trustRing.CenterValue = $"{trustCount}/3";
+        _trustRing.CenterCaption = ready ? "READY" : "CHECK";
+
+        _bleMetric.Value = !ble.Advertising
+            ? Compact(ble.Status, 10)
+            : ble.ConnectedClients > 0
+                ? $"已连接 {ble.ConnectedClients}"
+                : "广播中";
+        _bleMetric.Tone = ble.Advertising ? TechPalette.Mint : TechPalette.Danger;
+
+        _pairedMetric.Value = online ? $"{paired} 台" : "—";
+        _pairedMetric.Tone = paired > 0 ? TechPalette.Violet : TechPalette.Muted;
+
+        _credentialMetric.Value = !online
+            ? "服务离线"
+            : rejected
+                ? "已被拒绝"
+                : credentialSet
+                    ? "已保存"
+                    : "未保存";
+        _credentialMetric.Tone = credentialSet && !rejected
+            ? TechPalette.Mint
+            : rejected
+                ? TechPalette.Danger
+                : TechPalette.Warning;
+
+        _pairingAction.SubText = pairing is null
+            ? "等待手机发起配对"
+            : $"新请求 · {FormatPin(pairing.Pin)}";
+        _devicesAction.SubText = online ? $"{paired} 台已授权" : "服务离线";
+        _credentialAction.SubText = credentialSet
+            ? (rejected ? "已被系统拒绝" : "已保存")
+            : "Windows 密码";
+        _refreshAction.SubText = ble.Advertising ? "蓝牙广播中" : Compact(ble.Status, 12);
+    }
+
+    private static string Compact(string text, int maxLength)
+    {
+        return text.Length <= maxLength ? text : text[..Math.Max(1, maxLength - 1)] + "…";
+    }
+
+    private static string FormatPin(string pin)
+    {
+        return pin.Length == 6 ? pin[..3] + " " + pin[3..] : pin;
+    }
+}

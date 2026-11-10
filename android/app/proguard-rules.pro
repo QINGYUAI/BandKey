@@ -1,0 +1,1 @@
+# BandKey ProGuard rules
