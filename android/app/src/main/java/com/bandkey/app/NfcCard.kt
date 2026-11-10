@@ -11,39 +11,64 @@ object NfcCard {
 
     private val externalType = "bandkey:unlock".toByteArray(Charsets.US_ASCII)
 
-    fun writePayload(tag: Tag, payload: String): Boolean {
+    sealed class WriteResult {
+        data object Success : WriteResult()
+        data object NotWritable : WriteResult()
+        data object Unsupported : WriteResult()
+        data class TooLarge(val required: Int, val capacity: Int) : WriteResult()
+        data class HasForeignData(val recordCount: Int) : WriteResult()
+        data class Failed(val reason: String) : WriteResult()
+    }
+
+    fun writePayload(tag: Tag, payload: String, allowOverwrite: Boolean = false): WriteResult {
         val record = NdefRecord(
             NdefRecord.TNF_EXTERNAL_TYPE, externalType, ByteArray(0), payload.toByteArray(Charsets.UTF_8)
         )
         val message = NdefMessage(arrayOf(record))
+        val required = message.toByteArray().size
 
         val ndef = Ndef.get(tag)
         if (ndef != null) {
-            ndef.connect()
-            try {
-                if (!ndef.isWritable || ndef.maxSize < message.toByteArray().size) return false
-                val existing = ndef.ndefMessage ?: ndef.cachedNdefMessage
-                if (existing != null && existing.records.any { !isBandKeyRecord(it) }) {
-                    return false
+            return try {
+                ndef.connect()
+                try {
+                    when {
+                        !ndef.isWritable -> WriteResult.NotWritable
+                        ndef.maxSize < required -> WriteResult.TooLarge(required, ndef.maxSize)
+                        else -> {
+                            val existing = ndef.ndefMessage ?: ndef.cachedNdefMessage
+                            val foreign = existing?.records?.count { !isIgnorableRecord(it) } ?: 0
+                            if (!allowOverwrite && foreign > 0) {
+                                WriteResult.HasForeignData(foreign)
+                            } else {
+                                ndef.writeNdefMessage(message)
+                                WriteResult.Success
+                            }
+                        }
+                    }
+                } finally {
+                    ndef.close()
                 }
-                ndef.writeNdefMessage(message)
-                return true
-            } finally {
-                ndef.close()
+            } catch (e: Exception) {
+                WriteResult.Failed(e.message ?: "与卡片通信失败")
             }
         }
 
         val formatable = NdefFormatable.get(tag)
         if (formatable != null) {
-            formatable.connect()
-            try {
-                formatable.format(message)
-                return true
-            } finally {
-                formatable.close()
+            return try {
+                formatable.connect()
+                try {
+                    formatable.format(message)
+                    WriteResult.Success
+                } finally {
+                    formatable.close()
+                }
+            } catch (e: Exception) {
+                WriteResult.Failed(e.message ?: "卡片格式化失败")
             }
         }
-        return false
+        return WriteResult.Unsupported
     }
 
     fun readPayload(tag: Tag): String? {
@@ -64,4 +89,7 @@ object NfcCard {
 
     private fun isBandKeyRecord(record: NdefRecord): Boolean =
         record.tnf == NdefRecord.TNF_EXTERNAL_TYPE && record.type.contentEquals(externalType)
+
+    private fun isIgnorableRecord(record: NdefRecord): Boolean =
+        isBandKeyRecord(record) || record.tnf == NdefRecord.TNF_EMPTY
 }

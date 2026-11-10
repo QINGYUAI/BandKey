@@ -1,10 +1,11 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 
 namespace BandKeyService;
 
 public sealed class UnlockVerifier
 {
-    private static readonly TimeSpan MaxSkew = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan MaxSkew = TimeSpan.FromSeconds(120);
     private const long NonceTtlSeconds = 300;
 
     private readonly DeviceStore _store;
@@ -26,7 +27,16 @@ public sealed class UnlockVerifier
         }
 
         var now = DateTimeOffset.UtcNow;
-        var timestamp = DateTimeOffset.FromUnixTimeSeconds(request.Timestamp);
+        DateTimeOffset timestamp;
+        try
+        {
+            timestamp = DateTimeOffset.FromUnixTimeSeconds(request.Timestamp);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return (false, "timestamp_out_of_range");
+        }
+
         if (Math.Abs((now - timestamp).TotalSeconds) > MaxSkew.TotalSeconds)
         {
             return (false, "timestamp_out_of_range");
@@ -38,8 +48,19 @@ public sealed class UnlockVerifier
         }
 
         var data = $"unlock:{request.DeviceId}:{request.Nonce}:{request.Timestamp}";
-        if (string.IsNullOrWhiteSpace(request.Signature) ||
-            !CryptoUtil.VerifySignature(device.PublicKey, data, request.Signature))
+        if (string.IsNullOrWhiteSpace(request.Signature))
+        {
+            return (false, "bad_signature");
+        }
+
+        try
+        {
+            if (!CryptoUtil.VerifySignature(device.PublicKey, data, request.Signature))
+            {
+                return (false, "bad_signature");
+            }
+        }
+        catch (Exception ex) when (ex is FormatException or CryptographicException or ArgumentException)
         {
             return (false, "bad_signature");
         }

@@ -19,42 +19,73 @@ class TransportException(message: String, cause: Throwable? = null) : Exception(
 
 class WebSocketTransport(private val url: String) : Transport {
     private val http = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
         .pingInterval(20, TimeUnit.SECONDS)
         .build()
 
+    private val lock = Any()
+    @Volatile
     private var socket: WebSocket? = null
+    @Volatile
     private var listener: ((String) -> Unit)? = null
-    private val connected = CompletableDeferred<Unit>()
+    private var connected = CompletableDeferred<Unit>()
 
     override fun setListener(listener: (String) -> Unit) {
         this.listener = listener
     }
 
     override suspend fun open() {
-        if (socket != null) {
-            return
+        val deferred: CompletableDeferred<Unit>
+        synchronized(lock) {
+            if (socket != null) {
+                return
+            }
+            deferred = CompletableDeferred()
+            connected = deferred
         }
 
         val request = Request.Builder().url(url).build()
-        socket = http.newWebSocket(request, object : WebSocketListener() {
+        val webSocket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                if (!connected.isCompleted) {
-                    connected.complete(Unit)
-                }
+                deferred.complete(Unit)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (!connected.isCompleted) {
-                    connected.completeExceptionally(TransportException("连接失败：${t.message}", t))
+                deferred.completeExceptionally(TransportException("连接失败：${t.message}", t))
+                clearSocket(webSocket)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (!deferred.isCompleted) {
+                    deferred.completeExceptionally(
+                        TransportException("连接已关闭（code=$code）")
+                    )
                 }
+                clearSocket(webSocket)
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                listener?.invoke(text)
+                if (socket === webSocket) {
+                    listener?.invoke(text)
+                }
             }
         })
 
-        connected.await()
+        synchronized(lock) {
+            if (connected === deferred) {
+                socket = webSocket
+            } else {
+                webSocket.cancel()
+            }
+        }
+
+        try {
+            deferred.await()
+        } catch (e: Exception) {
+            clearSocket(webSocket)
+            webSocket.cancel()
+            throw e
+        }
     }
 
     override suspend fun send(text: String) {
@@ -65,7 +96,20 @@ class WebSocketTransport(private val url: String) : Transport {
     }
 
     override fun close() {
-        socket?.close(1000, null)
-        socket = null
+        val current = synchronized(lock) {
+            if (!connected.isCompleted) {
+                connected.completeExceptionally(TransportException("连接已关闭"))
+            }
+            socket.also { socket = null }
+        }
+        current?.close(1000, null)
+    }
+
+    private fun clearSocket(webSocket: WebSocket) {
+        synchronized(lock) {
+            if (socket === webSocket) {
+                socket = null
+            }
+        }
     }
 }

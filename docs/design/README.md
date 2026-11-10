@@ -107,7 +107,7 @@ Android 端已按本设计板完成第一轮实现：
 
 Windows 托盘的“信任仪表”控制中心与三个弹窗已完成第一轮落地：
 
-- `windows/BandKeyTray/TrayPopoverForm.cs`：双击托盘打开一屏式控制中心，接入真实 `/status`、`/pairing` 与 BLE 广播状态。
+- `windows/BandKeyTray/TrayPopoverForm.cs`：双击托盘打开一屏式控制中心，通过 `BandKeyTrayPipe` 接入真实服务状态、配对信息与 BLE 广播状态。
 - `windows/BandKeyTray/TechInstrument.cs`：新增 `TechCard`、`TechStatusPill`、`TechMiniRing`、`TechMetric`、`TechDeviceCard`、`TechPinDisplay`、`TechActionButton`。
 - `windows/BandKeyTray/TechTheme.cs`：主题切换到薄荷绿信号色，窗体、输入框、主按钮和进度条增加平滑过渡。
 - `windows/BandKeyTray/PairingDialog.cs`：大号 PIN、设备身份卡、剩余时间提示与平滑倒计时。
@@ -200,7 +200,7 @@ Windows 验收截图：
 1. Android 前台 Reader Mode 已启用，支持 NFC A/B/F/V，并在生命周期切换时启动或停止扫描。
 2. NFC 钥匙使用随机令牌、SHA-256 指纹和 Android Keystore 加密记录；支持最多 3 张钥匙、重命名和删除。
 3. 贴卡成功后在手机本地匹配令牌，再复用现有 ECDSA 签名解锁链路；新增 `method` 与 `keyHint` 展示字段。
-4. Windows `/status` 返回 `lastUnlockMethod`、`nfcKeyHint`、`nfcLastUsedAt`；控制中心新增 NFC 状态条和手机端管理说明。
+4. Windows 托盘管道的 `GET_STATUS` 返回 `lastUnlockMethod`、`nfcKeyHint`、`nfcLastUsedAt`；控制中心新增 NFC 状态条和手机端管理说明。
 5. 控制中心调整为 560×780，日志入口移到页脚，避免继续压缩遥测和操作区。
 
 仍需真机验证：贴卡距离、读取时长、不同卡类型、NFC 关闭、手机无 NFC 硬件、App 重启后钥匙持久化，以及系统动画关闭场景。

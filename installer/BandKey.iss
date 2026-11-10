@@ -42,9 +42,6 @@ Root: HKCR; Subkey: "CLSID\{{E86A4C6E-5B8A-4C2D-9F3A-1B2C3D4E5F60}\InprocServer3
 Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\BandKey"" /inheritance:r /grant:r ""*S-1-5-18:(OI)(CI)F"" ""*S-1-5-32-544:(OI)(CI)F"" /C"
 Filename: "{sys}\sc.exe"; Parameters: "create BandKeyService binPath= ""{app}\BandKeyService.exe"" start= auto DisplayName= ""电脑钥匙服务"""; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "failure BandKeyService reset= 86400 actions= restart/5000/restart/15000/restart/60000"; Flags: runhidden
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""BandKey WebSocket"" dir=in action=allow protocol=TCP localport=23234 profile=any program=""{app}\BandKeyService.exe"""; Flags: runhidden
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""BandKey LAN TCP"" dir=in action=allow protocol=TCP localport=47321 profile=any program=""{app}\BandKeyService.exe"""; Flags: runhidden
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""BandKey LAN UDP"" dir=in action=allow protocol=UDP localport=47322 profile=any program=""{app}\BandKeyService.exe"""; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "start BandKeyService"; Flags: runhidden
 Filename: "{app}\BandKeyTray.exe"; Description: "启动电脑钥匙托盘"; Flags: postinstall nowait skipifsilent runasoriginaluser
 
@@ -60,6 +57,27 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 Type: filesandordirs; Name: "{commonappdata}\BandKey"
 
 [Code]
+procedure ConfigureFirewall;
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="BandKey WebSocket"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="BandKey LAN TCP"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="BandKey LAN UDP"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall add rule name="BandKey WebSocket" dir=in action=allow protocol=TCP localport=23234 profile=private,domain remoteip=localsubnet program="' + ExpandConstant('{app}\BandKeyService.exe') + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall add rule name="BandKey LAN TCP" dir=in action=allow protocol=TCP localport=47321 profile=private,domain remoteip=localsubnet program="' + ExpandConstant('{app}\BandKeyService.exe') + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall add rule name="BandKey LAN UDP" dir=in action=allow protocol=UDP localport=47322 profile=private,domain remoteip=localsubnet program="' + ExpandConstant('{app}\BandKeyService.exe') + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    ConfigureFirewall;
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;

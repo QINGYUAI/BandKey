@@ -123,7 +123,7 @@ python tools\lan_smoke_test.py
 | 分帧 | NDJSON，`\n` 结尾，单条上限 8 KiB |
 | 属性权限 | `Plain`，安全性由应用层签名保证 |
 
-监听放在托盘而不是系统服务：WinRT 的 `GattServiceProvider` 在 Session 0 的系统服务中不可用，托盘运行在用户会话，能正常广播。服务对托盘只暴露仅回环可访问的 `/rpc` 入口。
+监听放在托盘而不是系统服务：WinRT 的 `GattServiceProvider` 在 Session 0 的系统服务中不可用，托盘运行在用户会话，能正常广播。服务对托盘通过 `BandKeyTrayPipe` 命名管道转发 RPC，不再暴露 HTTP `/rpc` 入口。
 
 自检：
 
@@ -142,8 +142,9 @@ python tools\lan_smoke_test.py
 
 - 手机广播 `BANDKEY_DISCOVER` 到 UDP `47322`，电脑返回名称、TCP 端口和本机 IPv4。
 - 手机随后连接 TCP `47321`，按行发送 JSON；连接可连续处理多条请求。
-- 服务只接受私有地址/回环地址，公共网络来源会被直接关闭。
-- 安装器会创建 `BandKey LAN TCP` 和 `BandKey LAN UDP` 两条防火墙规则。
+- WebSocket、TCP 和 UDP 发现都只接受私有地址/回环地址，公共网络来源会被直接关闭。
+- 安装器只会在“专用/域”网络配置文件和本地子网内开放 `BandKey WebSocket`、`BandKey LAN TCP`、`BandKey LAN UDP` 规则。
+- 如果手机无法通过 WiFi 连接，请把电脑当前 WiFi 网络设置为“专用网络”；“公用网络”会被防火墙策略拒绝。
 
 Android 在「蓝牙」模式下先尝试 BLE；BLE 失败后自动尝试 LAN（优先使用已填写的服务地址主机，否则 UDP 发现）。「WiFi」模式直接走 WebSocket。
 
@@ -166,19 +167,22 @@ NFC 是手机端的本地身份验证入口，不新增网络协议，也不要�
 - Windows 控制中心显示最近一次成功投递的钥匙指纹和时间，不展示或管理手机端钥匙列表。
 - 服务重启会清空最近 NFC 展示状态；钥匙本身仍保存在手机端。
 
-## 托盘与本地 API
+## 托盘与本地管理通道
 
-托盘以普通用户权限运行，通过 `127.0.0.1:23234` 的仅回环 API 与系统服务交互：
+托盘以普通用户权限运行，通过命名管道 `BandKeyTrayPipe` 与系统服务交互。服务端会校验管道客户端身份必须匹配当前控制台登录用户（`--dev` 开发模式除外）：
 
-| 方法 | 路径 | 用途 |
-| --- | --- | --- |
-| GET | `/health` | 服务存活检查（托盘每 2 秒轮询） |
-| GET | `/status` | 就绪、凭据、CP、LAN 监听及最近 NFC 验证状态 |
-| GET | `/pairing` | 当前待确认配对请求；无请求返回 204 |
-| GET | `/devices` | 已配对设备列表 |
-| DELETE | `/devices/{id}` | 删除设备 |
-| POST | `/credential` | 旧版回环 HTTP 凭据入口 |
-| POST | `/rpc` | BLE 托盘协议入口 |
+| 命令 | 用途 |
+| --- | --- |
+| `GET_STATUS` | 就绪、凭据、CP、LAN 监听及最近 NFC 验证状态 |
+| `GET_PAIRING` | 当前待确认配对请求 |
+| `LIST_DEVICES` | 已配对设备列表 |
+| `DELETE_DEVICE` | 删除指定设备 |
+| `SAVE_CREDENTIAL` | 校验并保存当前用户的 Windows 登录凭据 |
+| `RPC` | BLE 托盘转发的配对/解锁协议 |
+
+HTTP 仅保留 `GET /health` 存活检查。`/status`、`/pairing`、`/devices`、`/credential` 等旧管理端点只在 `--dev` 开发模式注册，正式服务不会暴露。
+
+本地联调可用 `--pipe-suffix _test_xxx` 给三条命名管道加后缀，避免与已安装服务冲突；对应回归脚本为 `tools\pipe_management_test.ps1`。
 
 托盘 UI 已统一为“信任仪表”暗色科技风：
 
@@ -260,6 +264,8 @@ powershell -ExecutionPolicy Bypass -File build.ps1 assembleRelease
 
 Release 使用仓库内置的开发签名（`android/bandkey-release.keystore` + `android/keystore.properties`，别名 `bandkey`）。仅用于侧载测试；正式发布请替换为自己的签名并妥善保管密钥。
 
+Release 默认启用 R8 混淆与资源收缩。依赖下载需要代理时，可设置 `BANDKEY_HTTP_PROXY`（例如 `http://127.0.0.1:7892`）；未设置时 `build.ps1` 会自动探测本机 `7892` 端口。
+
 ### Android 持久化与回退
 
 - 配对成功后，`deviceId`、公钥、私钥写入 `PairingStore`。
@@ -292,11 +298,12 @@ cd ..\..
 - 托盘显示「服务状态：未运行」：在服务管理器中启动 `BandKeyService`，或查看事件查看器的 7000/7009 错误。
 - 手机点配对但电脑没弹 PIN：确认服务运行中、手机已发出 `pair_request`；PIN 只在电脑托盘显示，不回传手机。
 - 已配对设备列表为空：手机必须完成 `pair_success`。开发模式使用 `%TEMP%` 配置文件，与已安装服务使用的 `C:\ProgramData\BandKey\devices.json` 不是同一份数据。
-- PIN 输入错误：配对 PIN 有效期 5 分钟，可在有效期内重试；过期后重新发起配对。
+- PIN 输入错误：配对 PIN 有效期 5 分钟，连续输错 5 次会锁定本次配对；请重新发起配对。
 - Windows 密码被拒绝：托盘重新保存“Windows 登录密码”，不是 Windows Hello PIN。
 - BLE 不可用：确认蓝牙适配器支持 Peripheral；失败时 Android 会自动回退 LAN。
-- LAN 不通：确认手机与电脑同一局域网、防火墙允许 TCP `47321` / UDP `47322`。
+- LAN 不通：确认手机与电脑同一局域网、电脑网络配置文件为“专用网络”，并确认防火墙允许本地子网的 TCP `47321` / UDP `47322`。
 - 托盘日志：`%LOCALAPPDATA%\BandKey\tray.log`（菜单「打开日志目录」）。
+- 服务日志：`C:\ProgramData\BandKey\service.log`（需要管理员权限查看；超过 2 MiB 轮转为 `service.log.1`）。
 - 锁屏凭据日志：`C:\ProgramData\BandKey\cp.log`（记录 LogonUI 枚举与序列化结果，含 `ReportResult` 状态码）。
 - `ReportResult status=0xC000000D`：CP 序列化结构不合法。`KERB_INTERACTIVE_UNLOCK_LOGON` 是 packed 结构，`UNICODE_STRING.Buffer` 必须填相对缓冲区起点的字节偏移（不是进程内绝对指针），且 `Length` 不包含结尾 NUL；1.5.1 已修复。
 

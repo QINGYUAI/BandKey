@@ -3,18 +3,20 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $dotnet = "$env:USERPROFILE\.dotnet\dotnet.exe"
 $dll = Join-Path $root 'windows\BandKeyService\bin\Release\net8.0\BandKeyService.dll'
-$cfg = Join-Path $env:TEMP 'bandkey_pipe_devices.json'
-$key = Join-Path $env:TEMP 'bandkey_pipe_phone_key.pem'
-$probeOut = Join-Path $env:TEMP 'bandkey_pipe_probe.log'
+$runId = [guid]::NewGuid().ToString('N').Substring(0, 12)
+$pipeSuffix = "-$runId"
+$cfg = Join-Path $env:TEMP "bandkey_pipe_devices_$runId.json"
+$key = Join-Path $env:TEMP "bandkey_pipe_phone_key_$runId.pem"
+$probeOut = Join-Path $env:TEMP "bandkey_pipe_probe_$runId.log"
 $client = Join-Path $root 'tools\simulate_phone.py'
 $port = 23236
 
 Remove-Item $cfg, $key, $probeOut -ErrorAction SilentlyContinue
 
 $serviceJob = Start-Job -ScriptBlock {
-    param($d, $serviceDll, $config, $listenPort)
-    & $d $serviceDll --urls "http://127.0.0.1:$listenPort" --config $config --pair-pin 123456 --dev
-} -ArgumentList $dotnet, $dll, $cfg, $port
+    param($d, $serviceDll, $config, $listenPort, $suffix)
+    & $d $serviceDll --urls "http://127.0.0.1:$listenPort" --config $config --pair-pin 123456 --dev --pipe-suffix $suffix
+} -ArgumentList $dotnet, $dll, $cfg, $port, $pipeSuffix
 
 $probeJob = $null
 try {
@@ -31,8 +33,8 @@ try {
     if (-not $ready) { throw 'service did not start in time' }
 
     $probeJob = Start-Job -ScriptBlock {
-        param($out, $seconds)
-        $pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', 'BandKeyPipe', [System.IO.Pipes.PipeDirection]::InOut, [System.IO.Pipes.PipeOptions]::Asynchronous)
+        param($out, $seconds, $pipeName)
+        $pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', $pipeName, [System.IO.Pipes.PipeDirection]::InOut, [System.IO.Pipes.PipeOptions]::Asynchronous)
         $pipe.Connect(10000)
         $utf8 = New-Object System.Text.UTF8Encoding($false)
         $reader = [System.IO.StreamReader]::new($pipe, $utf8, $false, 1024, $true)
@@ -52,7 +54,7 @@ try {
             $task = $reader.ReadLineAsync()
         }
         $pipe.Dispose()
-    } -ArgumentList $probeOut, 30
+    } -ArgumentList $probeOut, 30, "BandKeyPipe$pipeSuffix"
 
     $deadline = (Get-Date).AddSeconds(10)
     while ((Get-Date) -lt $deadline) {

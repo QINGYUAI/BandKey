@@ -256,6 +256,7 @@ private enum class NfcPhase {
     IDLE,
     SCANNING,
     BINDING,
+    CONFIRM,
     VERIFYING,
     REJECTED,
     ERROR
@@ -271,6 +272,11 @@ private data class UnlockReceipt(
     val target: String,
     val channel: String,
     val keyHint: String? = null
+)
+
+private data class NfcOverwriteTarget(
+    val tag: Tag,
+    val recordCount: Int
 )
 
 @Composable
@@ -323,6 +329,8 @@ private fun BandKeyScreen(
     var nfcRenameTarget by remember { mutableStateOf<NfcKeyRecord?>(null) }
     var nfcRenameValue by remember { mutableStateOf("") }
     var nfcDeleteTarget by remember { mutableStateOf<NfcKeyRecord?>(null) }
+    var nfcOverwriteTarget by remember { mutableStateOf<NfcOverwriteTarget?>(null) }
+    var nfcLastPurpose by remember { mutableStateOf(NfcScanPurpose.UNLOCK) }
 
     LaunchedEffect(Unit) {
         val record = withContext(Dispatchers.IO) { pairingStore.load() }
@@ -625,6 +633,7 @@ private fun BandKeyScreen(
 
     fun stopNfcScan(message: String? = null) {
         nfcScanPurpose = null
+        nfcOverwriteTarget = null
         nfcPhase = NfcPhase.IDLE
         onStopNfcReader()
         if (message != null) {
@@ -632,7 +641,7 @@ private fun BandKeyScreen(
         }
     }
 
-    suspend fun bindNfcTag(tag: Tag) {
+    suspend fun bindNfcTag(tag: Tag, allowOverwrite: Boolean = false) {
         val existing = withContext(Dispatchers.IO) {
             runCatching { NfcCard.readPayload(tag) }.getOrNull()
         }
@@ -649,13 +658,39 @@ private fun BandKeyScreen(
         }
 
         val payload = NfcCredential.newPayload()
-        val written = withContext(Dispatchers.IO) {
-            runCatching { NfcCard.writePayload(tag, payload) }.getOrDefault(false)
+        val result = withContext(Dispatchers.IO) {
+            runCatching { NfcCard.writePayload(tag, payload, allowOverwrite) }
+                .getOrElse { NfcCard.WriteResult.Failed(it.message ?: "NFC 写入失败") }
         }
-        if (!written) {
-            nfcPhase = NfcPhase.ERROR
-            nfcNotice = "这张卡不可写入，或已有其他 NDEF 数据；请换一张空白卡"
-            return
+        when (result) {
+            NfcCard.WriteResult.Success -> Unit
+            NfcCard.WriteResult.NotWritable -> {
+                nfcPhase = NfcPhase.ERROR
+                nfcNotice = "这张卡是只读卡，无法写入；请更换可写 NFC 卡"
+                return
+            }
+            NfcCard.WriteResult.Unsupported -> {
+                nfcPhase = NfcPhase.ERROR
+                nfcNotice = "这张卡不支持 NDEF 写入；请使用 NTAG21x 等 NDEF 卡"
+                return
+            }
+            is NfcCard.WriteResult.TooLarge -> {
+                nfcPhase = NfcPhase.ERROR
+                nfcNotice = "卡片容量不足：需要 ${result.required} 字节，本卡可用 ${result.capacity} 字节"
+                return
+            }
+            is NfcCard.WriteResult.HasForeignData -> {
+                nfcOverwriteTarget = NfcOverwriteTarget(tag, result.recordCount)
+                nfcPhase = NfcPhase.CONFIRM
+                nfcNotice = "卡片已有 ${result.recordCount} 条其他 NDEF 记录，请确认是否覆盖"
+                return
+            }
+            is NfcCard.WriteResult.Failed -> {
+                nfcPhase = NfcPhase.ERROR
+                nfcNotice =
+                    "写卡失败：${result.reason}；请保持卡片贴近手机后重试，若仍失败可能是卡片已加密或锁定"
+                return
+            }
         }
 
         val hash = NfcCredential.hash(payload)
@@ -673,6 +708,7 @@ private fun BandKeyScreen(
         withContext(Dispatchers.IO) { nfcKeyStore.save(updated) }
         nfcKeys = updated
         nfcPhase = NfcPhase.IDLE
+        nfcOverwriteTarget = null
         nfcRejectedHint = ""
         nfcNotice = "NFC 钥匙已绑定 · $hint"
     }
@@ -717,6 +753,7 @@ private fun BandKeyScreen(
     fun handleNfcTag(tag: Tag) {
         val purpose = nfcScanPurpose ?: return
         nfcScanPurpose = null
+        nfcLastPurpose = purpose
         onStopNfcReader()
         scope.launch {
             nfcPhase = if (purpose == NfcScanPurpose.BIND) NfcPhase.BINDING else NfcPhase.VERIFYING
@@ -727,7 +764,11 @@ private fun BandKeyScreen(
                 }
             } catch (e: Exception) {
                 nfcPhase = NfcPhase.ERROR
-                nfcNotice = "NFC 读取失败：${e.message ?: "请重新贴卡"}"
+                nfcNotice = if (purpose == NfcScanPurpose.BIND) {
+                    "写卡失败：${e.message ?: "请保持卡片贴近手机后重试"}"
+                } else {
+                    "NFC 读取失败：${e.message ?: "请重新贴卡"}"
+                }
             }
         }
     }
@@ -750,9 +791,10 @@ private fun BandKeyScreen(
         }
 
         nfcScanPurpose = purpose
+        nfcLastPurpose = purpose
         nfcPhase = NfcPhase.SCANNING
         nfcNotice = if (purpose == NfcScanPurpose.BIND) {
-            "请将空白 NFC 卡贴近手机背面"
+            "请将 NFC 卡贴近手机背面，已有数据会先询问是否覆盖"
         } else {
             "将已绑定的 NFC 钥匙贴近手机背面"
         }
@@ -772,6 +814,26 @@ private fun BandKeyScreen(
 
     fun bindNfcKey() {
         beginNfcScan(NfcScanPurpose.BIND)
+    }
+
+    fun confirmNfcOverwrite() {
+        val target = nfcOverwriteTarget ?: return
+        nfcOverwriteTarget = null
+        nfcPhase = NfcPhase.BINDING
+        scope.launch {
+            try {
+                bindNfcTag(target.tag, allowOverwrite = true)
+            } catch (e: Exception) {
+                nfcPhase = NfcPhase.ERROR
+                nfcNotice = "覆盖绑定失败：${e.message ?: "请重新贴卡"}"
+            }
+        }
+    }
+
+    fun cancelNfcOverwrite() {
+        nfcOverwriteTarget = null
+        nfcPhase = NfcPhase.IDLE
+        nfcNotice = "已取消绑定，卡片内容未被修改"
     }
 
     fun openNfcBinding() {
@@ -870,6 +932,7 @@ private fun BandKeyScreen(
                             nfcPhase = nfcPhase,
                             nfcNotice = nfcNotice,
                             nfcRejectedHint = nfcRejectedHint,
+                            nfcLastPurpose = nfcLastPurpose,
                             onChannelChange = { selectUnlockChannel(it) },
                             onBindNfc = { bindNfcKey() },
                             onScanNfc = { scanNfcUnlock() },
@@ -1035,6 +1098,14 @@ private fun BandKeyScreen(
                     onConfirm = { deleteNfcKey(record) }
                 )
             }
+
+            nfcOverwriteTarget?.let { target ->
+                NfcOverwriteOverlay(
+                    recordCount = target.recordCount,
+                    onCancel = { cancelNfcOverwrite() },
+                    onConfirm = { confirmNfcOverwrite() }
+                )
+            }
         }
     }
 }
@@ -1055,6 +1126,7 @@ private fun UnlockHome(
     nfcPhase: NfcPhase,
     nfcNotice: String,
     nfcRejectedHint: String,
+    nfcLastPurpose: NfcScanPurpose,
     onChannelChange: (String) -> Unit,
     onBindNfc: () -> Unit,
     onScanNfc: () -> Unit,
@@ -1077,6 +1149,7 @@ private fun UnlockHome(
             nfcPhase = nfcPhase,
             nfcNotice = nfcNotice,
             nfcRejectedHint = nfcRejectedHint,
+            nfcLastPurpose = nfcLastPurpose,
             onChannelChange = onChannelChange,
             onBindNfc = onBindNfc,
             onScanNfc = onScanNfc,
@@ -1317,6 +1390,7 @@ private fun NfcUnlockHome(
     nfcPhase: NfcPhase,
     nfcNotice: String,
     nfcRejectedHint: String,
+    nfcLastPurpose: NfcScanPurpose,
     onChannelChange: (String) -> Unit,
     onBindNfc: () -> Unit,
     onScanNfc: () -> Unit,
@@ -1329,6 +1403,7 @@ private fun NfcUnlockHome(
     val unavailable = nfcAvailability != NfcAvailability.READY
     val scanning = nfcPhase == NfcPhase.SCANNING
     val writing = nfcPhase == NfcPhase.BINDING
+    val confirming = nfcPhase == NfcPhase.CONFIRM
     val verifying = nfcPhase == NfcPhase.VERIFYING
     val rejected = nfcPhase == NfcPhase.REJECTED
     val failed = nfcPhase == NfcPhase.ERROR
@@ -1339,6 +1414,7 @@ private fun NfcUnlockHome(
         scanning && activeKey == null -> "绑定 NFC 钥匙"
         scanning -> "贴卡解锁"
         writing -> "正在写入卡片"
+        confirming -> "确认覆盖卡片"
         verifying -> "正在验证卡片"
         rejected -> "这张卡尚未绑定"
         failed -> "NFC 读取失败"
@@ -1352,11 +1428,13 @@ private fun NfcUnlockHome(
         nfcAvailability == NfcAvailability.DISABLED ->
             "请先在系统设置中开启 NFC，然后返回重试。"
         scanning && activeKey == null ->
-            "请将空白卡贴近手机背面，绑定会写入新的随机身份令牌。"
+            "请将 NFC 卡贴近手机背面；空白卡会直接写入新的随机身份令牌，已有数据的卡会先询问是否覆盖。"
         scanning ->
             "将 NFC 钥匙靠近手机背面，保持 1–2 秒。"
         writing ->
             "请保持卡片贴近手机，写入完成后会自动保存。"
+        confirming ->
+            nfcNotice.ifBlank { "卡片已有其他 NDEF 数据，请确认是否覆盖。" }
         verifying ->
             "已读取身份令牌，正在本机核对授权。"
         rejected ->
@@ -1375,6 +1453,7 @@ private fun NfcUnlockHome(
     val dialState = when {
         unavailable -> NfcDialState.UNAVAILABLE
         scanning -> NfcDialState.SCANNING
+        confirming -> NfcDialState.SCANNING
         writing || verifying || busy -> NfcDialState.VERIFYING
         rejected -> NfcDialState.REJECTED
         activeKey == null -> NfcDialState.UNBOUND
@@ -1383,14 +1462,14 @@ private fun NfcUnlockHome(
     val dialLabel = when (dialState) {
         NfcDialState.UNBOUND -> "NO KEY"
         NfcDialState.READY -> "NFC READY"
-        NfcDialState.SCANNING -> "SCANNING"
+        NfcDialState.SCANNING -> if (confirming) "CONFIRM" else "SCANNING"
         NfcDialState.VERIFYING -> if (writing) "WRITING" else "VERIFYING"
         NfcDialState.REJECTED -> "NOT BOUND"
         NfcDialState.UNAVAILABLE -> "UNAVAILABLE"
     }
     val tone = when {
         rejected || failed -> Bk.Coral
-        scanning || writing || verifying || busy -> Bk.Amber
+        scanning || writing || confirming || verifying || busy -> Bk.Amber
         activeKey != null && paired && !unavailable -> Bk.Mint
         else -> Bk.Dim
     }
@@ -1400,6 +1479,7 @@ private fun NfcUnlockHome(
         rejected -> "DENIED"
         failed -> "ERROR"
         scanning -> "SCANNING"
+        confirming -> "CONFIRM"
         writing || verifying || busy -> "VERIFY"
         activeKey == null -> "NO KEY"
         paired -> "NFC READY"
@@ -1410,13 +1490,15 @@ private fun NfcUnlockHome(
         nfcAvailability == NfcAvailability.DISABLED -> "前往系统设置"
         scanning -> "正在扫描…"
         writing -> "正在写入卡片…"
+        confirming -> "等待确认覆盖…"
         verifying || busy -> "正在验证卡片…"
-        rejected || failed -> if (activeKey == null) "重新绑定 NFC 钥匙" else "重新贴卡"
+        rejected || failed ->
+            if (nfcLastPurpose == NfcScanPurpose.BIND || activeKey == null) "重新绑定 NFC 钥匙" else "重新贴卡"
         activeKey == null -> "绑定 NFC 钥匙"
         !paired -> "先配对电脑"
         else -> "开始贴卡解锁"
     }
-    val primaryBusy = scanning || writing || verifying || busy
+    val primaryBusy = scanning || writing || confirming || verifying || busy
     val primaryEnabled = when {
         nfcAvailability == NfcAvailability.UNSUPPORTED -> false
         primaryBusy -> false
@@ -1425,8 +1507,9 @@ private fun NfcUnlockHome(
     }
     val primaryAction = when {
         nfcAvailability == NfcAvailability.DISABLED -> onOpenNfcSettings
-        rejected || failed -> if (activeKey == null) onBindNfc else onScanNfc
-        scanning || writing || verifying || busy -> ({})
+        rejected || failed ->
+            if (nfcLastPurpose == NfcScanPurpose.BIND || activeKey == null) onBindNfc else onScanNfc
+        scanning || writing || confirming || verifying || busy -> ({})
         activeKey == null -> onBindNfc
         !paired -> onPair
         else -> onScanNfc
@@ -1443,7 +1526,7 @@ private fun NfcUnlockHome(
             BrandHeader(
                 statusText = statusText,
                 tone = tone,
-                pulsing = scanning || writing || verifying || busy
+                pulsing = scanning || writing || confirming || verifying || busy
             )
             Spacer(Modifier.height(12.dp))
             SegmentedControl(
@@ -2776,6 +2859,87 @@ private fun NfcKeyNameOverlay(
 }
 
 @Composable
+private fun NfcOverwriteOverlay(
+    recordCount: Int,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.76f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onCancel
+                )
+        )
+        TechCard(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 22.dp),
+            padding = 20.dp
+        ) {
+            GlyphBadge(
+                glyph = BkGlyph.ALERT,
+                tone = Bk.Amber,
+                size = 54.dp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "覆盖卡片内容？",
+                color = Bk.Text,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(7.dp))
+            Text(
+                text = "检测到 $recordCount 条其他 NDEF 记录",
+                color = Bk.Amber,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(9.dp))
+            Text(
+                text = "继续后会清除这张卡原有的 NDEF 数据，并写入 BandKey 身份令牌。此操作不可撤销。",
+                color = Bk.Muted,
+                fontSize = 10.sp,
+                lineHeight = 16.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(18.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SecondaryAction(
+                    text = "取消",
+                    onClick = onCancel,
+                    tone = Bk.Muted,
+                    modifier = Modifier.weight(1f)
+                )
+                PrimaryAction(
+                    text = "覆盖并绑定",
+                    enabled = true,
+                    tone = Bk.Amber,
+                    glyph = BkGlyph.NFC,
+                    onClick = onConfirm,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun NfcKeyDeleteOverlay(
     record: NfcKeyRecord,
     onCancel: () -> Unit,
@@ -2858,6 +3022,7 @@ private fun NfcKeyDeleteOverlay(
 
 private fun pairingError(raw: String): String = when {
     raw.contains("wrong_pin") -> "PIN 不正确，请核对电脑托盘中的 6 位数字"
+    raw.contains("pairing_locked") -> "PIN 错误次数过多，本次配对已锁定，请重新发起配对"
     raw.contains("pairing_expired") -> "PIN 已过期，请重新发送配对请求"
     raw.contains("unknown_pairing") -> "配对已失效，请重新发起配对"
     raw.isBlank() -> "配对失败，请检查电脑端服务状态"

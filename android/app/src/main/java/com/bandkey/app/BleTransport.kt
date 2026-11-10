@@ -39,15 +39,24 @@ class BleTransport(context: Context) : Transport {
     private val adapter: BluetoothAdapter?
         get() = manager?.adapter
 
+    private val stateLock = Any()
+    private var generation = 0L
+
+    @Volatile
     private var gatt: BluetoothGatt? = null
+    @Volatile
     private var rxCharacteristic: BluetoothGattCharacteristic? = null
+    @Volatile
     private var listener: ((String) -> Unit)? = null
 
-    private val connected = CompletableDeferred<Unit>()
-    private val ready = CompletableDeferred<Unit>()
+    @Volatile
+    private var connected = CompletableDeferred<Unit>()
+    @Volatile
+    private var ready = CompletableDeferred<Unit>()
     private val writeDone = AtomicReference<CompletableDeferred<Boolean>?>(null)
     private val writeMutex = Mutex()
     private val receiveBuffer = java.io.ByteArrayOutputStream()
+    @Volatile
     private var mtu = 23
 
     override fun setListener(listener: (String) -> Unit) {
@@ -64,13 +73,41 @@ class BleTransport(context: Context) : Transport {
             throw TransportException("蓝牙未开启")
         }
 
+        val requestToken = synchronized(stateLock) { generation }
         val device = scanForBandKey(bluetoothAdapter)
-        val callback = createCallback()
-        gatt = device.connectGatt(appContext, false, callback, BluetoothDevice.TRANSPORT_LE)
-            ?: throw TransportException("发起 BLE 连接失败")
+        val token = synchronized(stateLock) {
+            if (generation != requestToken) {
+                throw TransportException("连接已取消")
+            }
+            ++generation
+        }
+        connected = CompletableDeferred()
+        ready = CompletableDeferred()
+        synchronized(receiveBuffer) { receiveBuffer.reset() }
+        rxCharacteristic = null
+        mtu = 23
 
-        withTimeout(20_000) { connected.await() }
-        withTimeout(20_000) { ready.await() }
+        val callback = createCallback(token)
+        val newGatt = device.connectGatt(appContext, false, callback, BluetoothDevice.TRANSPORT_LE)
+            ?: throw TransportException("发起 BLE 连接失败")
+        if (!isCurrent(token)) {
+            runCatching { newGatt.close() }
+            throw TransportException("连接已取消")
+        }
+        gatt = newGatt
+
+        try {
+            withTimeout(20_000) { connected.await() }
+            withTimeout(20_000) { ready.await() }
+        } catch (e: Exception) {
+            if (gatt === newGatt) {
+                gatt = null
+            }
+            rxCharacteristic = null
+            runCatching { newGatt.disconnect() }
+            runCatching { newGatt.close() }
+            throw e
+        }
     }
 
     override suspend fun send(text: String) {
@@ -106,21 +143,39 @@ class BleTransport(context: Context) : Transport {
             throw TransportException("BLE 写入未能启动")
         }
 
-        val ok = withTimeout(10_000) { deferred.await() }
-        if (!ok) {
-            throw TransportException("BLE 写入被拒绝")
+        try {
+            val ok = withTimeout(10_000) { deferred.await() }
+            if (!ok) {
+                throw TransportException("BLE 写入被拒绝")
+            }
+        } finally {
+            writeDone.compareAndSet(deferred, null)
         }
     }
 
     override fun close() {
+        synchronized(stateLock) { generation++ }
+        if (!connected.isCompleted) {
+            connected.completeExceptionally(TransportException("连接已关闭"))
+        }
+        if (!ready.isCompleted) {
+            ready.completeExceptionally(TransportException("连接已关闭"))
+        }
+        writeDone.getAndSet(null)?.completeExceptionally(TransportException("连接已关闭"))
+        synchronized(receiveBuffer) { receiveBuffer.reset() }
+
+        val activeGatt = gatt
+        gatt = null
+        rxCharacteristic = null
+        if (activeGatt == null) {
+            return
+        }
         try {
-            gatt?.disconnect()
-            gatt?.close()
+            activeGatt.disconnect()
+            activeGatt.close()
         } catch (_: Exception) {
             // 忽略关闭异常
         }
-        gatt = null
-        rxCharacteristic = null
     }
 
     private suspend fun scanForBandKey(bluetoothAdapter: BluetoothAdapter): BluetoothDevice {
@@ -176,9 +231,16 @@ class BleTransport(context: Context) : Transport {
         return name?.startsWith("BandKey", ignoreCase = true) == true
     }
 
-    private fun createCallback(): BluetoothGattCallback {
+    private fun isCurrent(token: Long): Boolean = synchronized(stateLock) {
+        generation == token
+    }
+
+    private fun createCallback(token: Long): BluetoothGattCallback {
         return object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+                if (!isCurrent(token)) {
+                    return
+                }
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
                     if (!connected.isCompleted) {
                         connected.complete(Unit)
@@ -193,6 +255,9 @@ class BleTransport(context: Context) : Transport {
             }
 
             override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+                if (!isCurrent(token)) {
+                    return
+                }
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     this@BleTransport.mtu = mtu
                 }
@@ -200,6 +265,9 @@ class BleTransport(context: Context) : Transport {
             }
 
             override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+                if (!isCurrent(token)) {
+                    return
+                }
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     fail(TransportException("服务发现失败：$status"))
                     return
@@ -251,6 +319,9 @@ class BleTransport(context: Context) : Transport {
                 descriptor: BluetoothGattDescriptor,
                 status: Int
             ) {
+                if (!isCurrent(token)) {
+                    return
+                }
                 if (descriptor.uuid == CCCD_UUID) {
                     if (status == BluetoothGatt.GATT_SUCCESS) {
                         if (!ready.isCompleted) {
@@ -267,7 +338,7 @@ class BleTransport(context: Context) : Transport {
                 gatt: BluetoothGatt,
                 characteristic: BluetoothGattCharacteristic
             ) {
-                if (characteristic.uuid != TX_UUID) {
+                if (!isCurrent(token) || characteristic.uuid != TX_UUID) {
                     return
                 }
 
@@ -281,10 +352,16 @@ class BleTransport(context: Context) : Transport {
                 characteristic: BluetoothGattCharacteristic,
                 status: Int
             ) {
-                writeDone.get()?.complete(status == BluetoothGatt.GATT_SUCCESS)
+                if (!isCurrent(token)) {
+                    return
+                }
+                writeDone.getAndSet(null)?.complete(status == BluetoothGatt.GATT_SUCCESS)
             }
 
             private fun fail(error: Exception) {
+                if (!isCurrent(token)) {
+                    return
+                }
                 if (!ready.isCompleted) {
                     ready.completeExceptionally(error)
                 }

@@ -1,6 +1,11 @@
 namespace BandKeyService;
 
-public sealed record CommandLineOptions(string ConfigFile, string Urls, string? PairPin, bool DevMode);
+public sealed record CommandLineOptions(
+    string ConfigFile,
+    string Urls,
+    string? PairPin,
+    bool DevMode,
+    string? PipeSuffix = null);
 
 public static class CommandLine
 {
@@ -9,6 +14,7 @@ public static class CommandLine
         string? config = null;
         string urls = "http://0.0.0.0:23234";
         string? pairPin = null;
+        string? pipeSuffix = null;
         var devMode = false;
 
         for (var i = 0; i < args.Length; i++)
@@ -24,6 +30,9 @@ public static class CommandLine
                 case "--pair-pin" when i + 1 < args.Length:
                     pairPin = args[++i];
                     break;
+                case "--pipe-suffix" when i + 1 < args.Length:
+                    pipeSuffix = args[++i];
+                    break;
                 case "--dev":
                     devMode = true;
                     break;
@@ -35,6 +44,6 @@ public static class CommandLine
             "BandKey",
             "devices.json");
 
-        return new CommandLineOptions(config, urls, pairPin, devMode);
+        return new CommandLineOptions(config, urls, pairPin, devMode, pipeSuffix);
     }
 }

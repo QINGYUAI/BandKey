@@ -4,8 +4,9 @@ import java.io.Closeable
 import java.security.KeyPair
 import java.security.interfaces.ECPublicKey
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 
@@ -13,7 +14,16 @@ class ProtocolException(message: String) : Exception(message)
 
 class ProtocolClient(private val transport: Transport) : Closeable {
 
-    private val pending = ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
+    private class PendingRequest(
+        val expectedType: String,
+        val deferred: CompletableDeferred<JSONObject>
+    )
+
+    private val requestMutex = Mutex()
+    private val pendingLock = Any()
+    private var pending: PendingRequest? = null
+
+    @Volatile
     private var opened = false
 
     init {
@@ -33,13 +43,18 @@ class ProtocolClient(private val transport: Transport) : Closeable {
             val code = payload?.optString("code") ?: "error"
             val message = payload?.optString("message") ?: "服务返回错误"
             val error = ProtocolException("$code: $message")
-            val waiters = pending.values.toList()
-            pending.clear()
-            waiters.forEach { it.completeExceptionally(error) }
+            takePending()?.deferred?.completeExceptionally(error)
             return
         }
 
-        pending.remove(type)?.complete(obj)
+        val request = synchronized(pendingLock) {
+            if (pending?.expectedType == type) pending.also { pending = null } else null
+        }
+        request?.deferred?.complete(obj)
+    }
+
+    private fun takePending(): PendingRequest? = synchronized(pendingLock) {
+        pending.also { pending = null }
     }
 
     private suspend fun ensureOpen() {
@@ -50,19 +65,36 @@ class ProtocolClient(private val transport: Transport) : Closeable {
     }
 
     suspend fun request(expectedResponseType: String, type: String, payload: JSONObject): JSONObject {
-        ensureOpen()
+        return requestMutex.withLock {
+            ensureOpen()
 
-        val deferred = CompletableDeferred<JSONObject>()
-        pending[expectedResponseType] = deferred
+            val deferred = CompletableDeferred<JSONObject>()
+            synchronized(pendingLock) {
+                pending = PendingRequest(expectedResponseType, deferred)
+            }
 
-        val message = JSONObject().put("type", type).put("payload", payload)
-        try {
-            transport.send(message.toString())
-            return withTimeout(20_000) { deferred.await() }
-        } catch (e: Exception) {
-            pending.remove(expectedResponseType)
-            throw e
+            val message = JSONObject().put("type", type).put("payload", payload)
+            try {
+                transport.send(message.toString())
+                withTimeout(20_000) { deferred.await() }
+            } catch (e: ProtocolException) {
+                throw e
+            } catch (e: Exception) {
+                resetConnection()
+                throw e
+            } finally {
+                synchronized(pendingLock) {
+                    if (pending?.deferred === deferred) {
+                        pending = null
+                    }
+                }
+            }
         }
+    }
+
+    private fun resetConnection() {
+        opened = false
+        runCatching { transport.close() }
     }
 
     suspend fun pairChallenge(keyPair: KeyPair, deviceName: String): String {
@@ -108,6 +140,8 @@ class ProtocolClient(private val transport: Transport) : Closeable {
     }
 
     override fun close() {
+        opened = false
+        takePending()?.deferred?.completeExceptionally(ProtocolException("连接已关闭"))
         transport.close()
     }
 }

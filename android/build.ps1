@@ -9,7 +9,22 @@ if (Test-Path (Join-Path $jdk 'bin\java.exe')) {
     $env:JAVA_HOME = $jdk
 }
 
-$env:JAVA_OPTS = '-Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=7892 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=7892'
+$proxy = $env:BANDKEY_HTTP_PROXY
+if (-not $proxy) {
+    $probe = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $connect = $probe.ConnectAsync('127.0.0.1', 7892)
+        if ($connect.Wait(150) -and $probe.Connected) {
+            $proxy = 'http://127.0.0.1:7892'
+        }
+    }
+    catch { }
+    finally { $probe.Dispose() }
+}
+if ($proxy) {
+    $proxyUri = [Uri]$proxy
+    $env:JAVA_OPTS = "-Dhttp.proxyHost=$($proxyUri.Host) -Dhttp.proxyPort=$($proxyUri.Port) -Dhttps.proxyHost=$($proxyUri.Host) -Dhttps.proxyPort=$($proxyUri.Port)"
+}
 
 if (-not $env:ANDROID_HOME) {
     $sdk = Join-Path $env:LOCALAPPDATA 'Android\Sdk'

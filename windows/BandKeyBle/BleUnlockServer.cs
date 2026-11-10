@@ -1,4 +1,3 @@
-using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using Windows.Devices.Bluetooth;
@@ -9,25 +8,23 @@ namespace BandKeyBle;
 
 public sealed class BleUnlockServer : IAsyncDisposable
 {
-    private const string RpcUrl = "http://127.0.0.1:23234/rpc";
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    private readonly HttpClient _http = new()
-    {
-        Timeout = TimeSpan.FromSeconds(20)
-    };
-
+    private readonly Func<string, Task<string>>? _rpcHandler;
     private readonly MessageAssembler _assembler = new();
     private readonly Action<string>? _log;
     private GattServiceProvider? _provider;
     private GattLocalCharacteristic? _tx;
 
-    public BleUnlockServer(Action<string>? log = null)
+    public BleUnlockServer(
+        Action<string>? log = null,
+        Func<string, Task<string>>? rpcHandler = null)
     {
         _log = log;
+        _rpcHandler = rpcHandler;
     }
 
     public string Status { get; private set; } = "未启动";
@@ -171,7 +168,6 @@ public sealed class BleUnlockServer : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await StopAsync();
-        _http.Dispose();
     }
 
     private async void OnWriteRequested(GattLocalCharacteristic sender, GattWriteRequestedEventArgs args)
@@ -226,14 +222,18 @@ public sealed class BleUnlockServer : IAsyncDisposable
 
     private async Task<string> ForwardAsync(string json)
     {
+        var handler = _rpcHandler;
+        if (handler is null)
+        {
+            return ErrorJson("service_unavailable", "电脑端服务未配置 RPC 通道");
+        }
+
         try
         {
-            using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            using var response = await _http.PostAsync(RpcUrl, content);
-            var text = await response.Content.ReadAsStringAsync();
+            var text = await handler(json);
             if (string.IsNullOrWhiteSpace(text))
             {
-                return ErrorJson("service_error", $"服务返回空响应 HTTP {(int)response.StatusCode}");
+                return ErrorJson("service_error", "服务返回空响应");
             }
 
             return text;

@@ -587,6 +587,9 @@ HRESULT BandKeyCredential::BuildSerialization(CREDENTIAL_PROVIDER_CREDENTIAL_SER
         {
             CpLog("CredProtect failed hr=0x%08lX, falling back to plaintext", protectHr);
         }
+
+        SecureZeroMemory(protectedPassword.data(),
+                         protectedPassword.size() * sizeof(wchar_t));
     }
 
     // Winlogon/LSA 读取的是 "packed" 结构：UNICODE_STRING.Buffer 必须存放相对
@@ -647,16 +650,25 @@ HRESULT BandKeyCredential::BuildSerialization(CREDENTIAL_PROVIDER_CREDENTIAL_SER
     cpcs.rgbSerialization = static_cast<BYTE*>(CoTaskMemAlloc(total));
     if (!cpcs.rgbSerialization)
     {
+        SecureZeroMemory(serializationBuffer_.data(), total);
+        SecureZeroMemory(password.data(), password.size() * sizeof(wchar_t));
+        SecureZeroMemory(packedPassword.data(), packedPassword.size() * sizeof(wchar_t));
         return E_OUTOFMEMORY;
     }
     CopyMemory(cpcs.rgbSerialization, serializationBuffer_.data(), total);
+    const unsigned long messageType = static_cast<unsigned long>(kil->MessageType);
     CpLog(
         "Serialization packed user=%zu domain=%zu passwordChars=%zu protected=%d messageType=%lu total=%lu",
         user.size(),
         domain.size(),
         packedPassword.size(),
         passwordProtected ? 1 : 0,
-        static_cast<unsigned long>(kil->MessageType),
+        messageType,
         total);
+
+    // 明文/加密后的密码副本只在校验期间需要，返回后立即从进程内存中清除。
+    SecureZeroMemory(serializationBuffer_.data(), total);
+    SecureZeroMemory(password.data(), password.size() * sizeof(wchar_t));
+    SecureZeroMemory(packedPassword.data(), packedPassword.size() * sizeof(wchar_t));
     return S_OK;
 }

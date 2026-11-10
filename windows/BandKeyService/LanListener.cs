@@ -39,11 +39,11 @@ public sealed class LanListener : IAsyncDisposable
             _tcp.Start();
             TcpListening = true;
             _tcpLoop = Task.Run(() => RunTcpAsync(_cts.Token));
-            Console.WriteLine($"[lan] TCP listening on {TcpPort}");
+            ServiceLog.Write($"[lan] TCP listening on {TcpPort}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[lan] TCP unavailable: {ex.Message}");
+            ServiceLog.Write($"[lan] TCP unavailable: {ex.Message}");
         }
 
         try
@@ -51,11 +51,11 @@ public sealed class LanListener : IAsyncDisposable
             _udp = new UdpClient(new IPEndPoint(IPAddress.Any, UdpPort));
             UdpListening = true;
             _udpLoop = Task.Run(() => RunUdpAsync(_cts.Token));
-            Console.WriteLine($"[lan] UDP discovery listening on {UdpPort}");
+            ServiceLog.Write($"[lan] UDP discovery listening on {UdpPort}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[lan] UDP unavailable: {ex.Message}");
+            ServiceLog.Write($"[lan] UDP unavailable: {ex.Message}");
         }
     }
 
@@ -77,7 +77,7 @@ public sealed class LanListener : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[lan] TCP accept error: {ex.Message}");
+                ServiceLog.Write($"[lan] TCP accept error: {ex.Message}");
                 try
                 {
                     await Task.Delay(1000, ct).ConfigureAwait(false);
@@ -101,7 +101,8 @@ public sealed class LanListener : IAsyncDisposable
             using (client)
             {
                 client.NoDelay = true;
-                if (client.Client.RemoteEndPoint is not IPEndPoint remote || !IsPrivateAddress(remote.Address))
+                if (client.Client.RemoteEndPoint is not IPEndPoint remote
+                    || !NetworkAddressUtil.IsPrivateOrLoopback(remote.Address))
                 {
                     return;
                 }
@@ -134,7 +135,7 @@ public sealed class LanListener : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[lan] TCP client error: {ex.Message}");
+            ServiceLog.Write($"[lan] TCP client error: {ex.Message}");
         }
     }
 
@@ -152,7 +153,7 @@ public sealed class LanListener : IAsyncDisposable
                     continue;
                 }
 
-                if (!IsPrivateAddress(result.RemoteEndPoint.Address))
+                if (!NetworkAddressUtil.IsPrivateOrLoopback(result.RemoteEndPoint.Address))
                 {
                     continue;
                 }
@@ -177,7 +178,7 @@ public sealed class LanListener : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[lan] UDP error: {ex.Message}");
+                ServiceLog.Write($"[lan] UDP error: {ex.Message}");
                 try
                 {
                     await Task.Delay(500, ct).ConfigureAwait(false);
@@ -209,30 +210,6 @@ public sealed class LanListener : IAsyncDisposable
         {
             return new List<string>();
         }
-    }
-
-    private static bool IsPrivateAddress(IPAddress address)
-    {
-        if (IPAddress.IsLoopback(address))
-        {
-            return true;
-        }
-
-        if (address.AddressFamily == AddressFamily.InterNetwork)
-        {
-            var bytes = address.GetAddressBytes();
-            return bytes[0] == 10
-                   || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
-                   || (bytes[0] == 192 && bytes[1] == 168)
-                   || (bytes[0] == 169 && bytes[1] == 254);
-        }
-
-        if (address.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            return address.IsIPv6LinkLocal || address.IsIPv6UniqueLocal;
-        }
-
-        return false;
     }
 
     public async ValueTask DisposeAsync()

@@ -32,7 +32,7 @@ internal static class Program
 #endif
         TrayLog.Write($"tray start, version={typeof(Program).Assembly.GetName().Version}");
 
-        _ble = new BleUnlockServer(TrayLog.Write);
+        _ble = new BleUnlockServer(TrayLog.Write, TrayPipeClient.RpcAsync);
         _ = _ble.StartAsync();
 
         _trayIcon = TechIconFactory.CreateTrayIcon();
@@ -302,9 +302,11 @@ internal static class Program
             var result = await TrayPipeClient.SaveCredentialAsync(domain, username, dialog.Password);
             if (result.PipeUnavailable)
             {
-                // 兼容旧版服务：管道不可用时回退到仅回环 HTTP 接口。
-                await Api.SaveCredentialAsync(dialog.Account, dialog.Password);
-                TechMessageBox.Show(null, "凭据已保存。", "解锁凭据", TechMessageKind.Success);
+                TechMessageBox.Show(
+                    null,
+                    "无法连接电脑钥匙服务：" + result.Error + "\n\n请确认“服务状态”为运行中。",
+                    "解锁凭据",
+                    TechMessageKind.Danger);
                 return;
             }
 
@@ -398,7 +400,7 @@ internal static class Program
             await _ble.DisposeAsync();
         }
 
-        _ble = new BleUnlockServer(TrayLog.Write);
+        _ble = new BleUnlockServer(TrayLog.Write, TrayPipeClient.RpcAsync);
         var ok = await _ble.StartAsync();
         TechMessageBox.Show(
             null,

@@ -25,7 +25,7 @@ NDJSON 通道要求每条消息以 `\n` 结尾；单条消息上限 16 KiB。Web
 
 - 签名算法：`ECDSA P-256 / SHA-256`，签名为 **P1363 原始格式**（`r||s`，64 字节）的 Base64。
 - 公钥编码：**SubjectPublicKeyInfo (SPKI) DER** 的 Base64，与 Java/Kotlin 的 `ECPublicKey.encoded`、C# 的 `ECDsa.ExportSubjectPublicKeyInfo()` 互通。
-- 防重放：随机 `nonce`（8~128 字符）+ Unix 秒级 `timestamp`。服务端校验时间偏差 ±30 秒，并缓存 nonce 5 分钟。
+- 防重放：随机 `nonce`（8~128 字符）+ Unix 秒级 `timestamp`。服务端校验时间偏差 ±120 秒，并缓存 nonce 5 分钟。
 - 配对 PIN 只用于建立首次信任；后续解锁只依赖手机私钥签名。
 
 ## 配对流程
@@ -66,7 +66,7 @@ NDJSON 通道要求每条消息以 `\n` 结尾；单条消息上限 16 KiB。Web
 }
 ```
 
-PIN 有效期 5 分钟；确认成功或过期后失效。错误 PIN 可在有效期内重试。
+PIN 有效期 5 分钟；确认成功或过期后失效。错误 PIN 可在有效期内重试，但同一配对请求连续输错 5 次后会立即锁定，需要重新发起配对。
 
 ## 解锁流程
 
@@ -110,7 +110,7 @@ unlock:<deviceId>:<nonce>:<timestamp>
 
 ## 托盘状态接口
 
-仅允许回环访问的 `GET /status` 返回最近一次成功投递的解锁摘要：
+托盘的 `GET_STATUS` 命名管道命令返回最近一次成功投递的解锁摘要（旧版 `GET /status` 仅保留在 `--dev` 开发模式）：
 
 ```json
 {
@@ -164,9 +164,9 @@ unlock:<deviceId>:<nonce>:<timestamp>
 | `bad_json` | JSON 解析失败 |
 | `bad_key` | 公钥格式无效 |
 | `unknown_type` | 未知消息类型 |
-| `unknown_pairing` / `wrong_pin` | 配对不存在或 PIN 错误 |
+| `unknown_pairing` / `wrong_pin` / `pairing_locked` | 配对不存在、PIN 错误或错误次数过多已锁定 |
 | `unknown_device` | 设备未配对或已被删除 |
-| `timestamp_out_of_range` | 时间戳超出 ±30 秒 |
+| `timestamp_out_of_range` | 时间戳非法或超出 ±120 秒 |
 | `invalid_nonce` / `replayed_nonce` | nonce 非法或已使用 |
 | `bad_signature` | 签名验证失败 |
 | `no_credential` | 尚未保存 Windows 解锁凭据 |
@@ -255,5 +255,5 @@ BANDKEY_DISCOVER
 
 - 第三方 Credential Provider **无法读取或验证 Windows Hello PIN、指纹或人脸**。因此后台解锁凭据必须是 Windows 账户密码，托盘界面会明确提示“不是 PIN”。
 - 凭据只保存在本机，使用 DPAPI `LocalMachine` 加密；不会通过网络发送。
-- 局域网 TCP 仅接受私有地址与回环地址；UDP 发现同样限制来源。
+- 局域网 TCP、UDP 发现和 WebSocket 入口都只接受私有地址与回环地址，公共网络来源会被拒绝。
 - 所有解锁请求都必须通过 ECDSA 私钥签名与 nonce/时间戳校验，重放请求会被拒绝。

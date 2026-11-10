@@ -62,7 +62,18 @@ bool StoredCredential::Load(std::wstring& username, std::wstring& password)
         return false;
     }
 
-    password.assign(reinterpret_cast<wchar_t*>(out.pbData), out.cbData / sizeof(wchar_t));
+    try
+    {
+        password.assign(reinterpret_cast<wchar_t*>(out.pbData), out.cbData / sizeof(wchar_t));
+    }
+    catch (...)
+    {
+        SecureZeroMemory(out.pbData, out.cbData);
+        LocalFree(out.pbData);
+        throw;
+    }
+
+    SecureZeroMemory(out.pbData, out.cbData);
     LocalFree(out.pbData);
     return !password.empty();
 }

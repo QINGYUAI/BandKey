@@ -9,7 +9,8 @@ namespace BandKeyService;
 /// <summary>
 /// 三条命名管道：
 /// - BandKeyPipe：凭据提供程序专用，双向，SYSTEM 全权限。
-/// - BandKeyTrayPipe：托盘专用，双向，允许已认证用户读写，用于安全保存凭据。
+/// - BandKeyTrayPipe：托盘专用，双向，允许已认证用户读写，用于安全保存凭据、
+///   查询状态、管理设备和转发 BLE RPC。
 /// - BandKeyUnlock：旧版单向通知管道，保留兼容，避免升级后解锁链路中断。
 /// </summary>
 public sealed class PipeServer : IAsyncDisposable
@@ -20,9 +21,15 @@ public sealed class PipeServer : IAsyncDisposable
 
     private static readonly Encoding Utf8 = new UTF8Encoding(false);
 
+    private readonly DeviceStore _store;
+    private readonly PairingManager _pairing;
     private readonly AutoUnlockState _state;
     private readonly CredentialStore _credentials;
+    private readonly UnlockActivityState _activity;
     private readonly bool _devMode;
+    private readonly string _cpPipeName;
+    private readonly string _trayPipeName;
+    private readonly string _legacyPipeName;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _gate = new();
     private readonly List<NamedPipeServerStream> _legacyClients = new();
@@ -30,15 +37,35 @@ public sealed class PipeServer : IAsyncDisposable
     private Task? _cpLoop;
     private Task? _trayLoop;
     private Task? _legacyLoop;
+    private Func<string, string>? _rpcHandler;
+    private LanListener? _lan;
 
-    public PipeServer(AutoUnlockState state, CredentialStore credentials, bool devMode = false)
+    public PipeServer(
+        DeviceStore store,
+        PairingManager pairing,
+        AutoUnlockState state,
+        CredentialStore credentials,
+        UnlockActivityState activity,
+        bool devMode = false,
+        string? pipeSuffix = null)
     {
+        _store = store;
+        _pairing = pairing;
         _state = state;
         _credentials = credentials;
+        _activity = activity;
         _devMode = devMode;
+        var suffix = string.IsNullOrWhiteSpace(pipeSuffix) ? "" : pipeSuffix.Trim();
+        _cpPipeName = CpPipeName + suffix;
+        _trayPipeName = TrayPipeName + suffix;
+        _legacyPipeName = LegacyPipeName + suffix;
         _state.AutoUnlockRequested += OnAutoUnlockRequested;
         _state.UnlockReadyChanged += OnUnlockReadyChanged;
     }
+
+    public void SetRpcHandler(Func<string, string> handler) => _rpcHandler = handler;
+
+    public void SetLanListener(LanListener lan) => _lan = lan;
 
     public bool IsCredentialProviderConnected
     {
@@ -79,12 +106,12 @@ public sealed class PipeServer : IAsyncDisposable
 
         if (SendToCp($"AUTO_UNLOCK:{requestId.Value}"))
         {
-            Console.WriteLine($"[pipe] AUTO_UNLOCK:{requestId.Value} delivered");
+            ServiceLog.Write($"[pipe] AUTO_UNLOCK:{requestId.Value} delivered");
         }
         else
         {
             _state.CancelPendingAutoUnlock();
-            Console.WriteLine("[pipe] AUTO_UNLOCK canceled: credential provider not connected");
+            ServiceLog.Write("[pipe] AUTO_UNLOCK canceled: credential provider not connected");
         }
 
         SendLegacyUnlock();
@@ -97,7 +124,7 @@ public sealed class PipeServer : IAsyncDisposable
             NamedPipeServerStream? pipe = null;
             try
             {
-                pipe = CreatePipe(CpPipeName, PipeDirection.InOut, 1, PipeOptions.FirstPipeInstance,
+                pipe = CreatePipe(_cpPipeName, PipeDirection.InOut, 1, PipeOptions.FirstPipeInstance,
                     systemOnly: !_devMode);
                 await pipe.WaitForConnectionAsync(ct).ConfigureAwait(false);
 
@@ -107,7 +134,7 @@ public sealed class PipeServer : IAsyncDisposable
                     _cpConnection = connection;
                 }
 
-                Console.WriteLine("[pipe] credential provider connected");
+                ServiceLog.Write("[pipe] credential provider connected");
                 SendToCp($"UNLOCK_READY:{(_state.UnlockReady ? "true" : "false")}");
 
                 var pending = _state.PendingAutoUnlockRequestId;
@@ -135,7 +162,7 @@ public sealed class PipeServer : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[pipe] CP error: {ex.Message}");
+                ServiceLog.Write($"[pipe] CP error: {ex.Message}");
                 try
                 {
                     await Task.Delay(1000, ct).ConfigureAwait(false);
@@ -160,7 +187,7 @@ public sealed class PipeServer : IAsyncDisposable
                 if (wasCurrent)
                 {
                     _state.CancelPendingAutoUnlock();
-                    Console.WriteLine("[pipe] credential provider disconnected");
+                    ServiceLog.Write("[pipe] credential provider disconnected");
                 }
 
                 pipe?.Dispose();
@@ -172,7 +199,7 @@ public sealed class PipeServer : IAsyncDisposable
     {
         if (line == "PASSWORD_FAILED")
         {
-            Console.WriteLine("[pipe] credential provider reported PASSWORD_FAILED");
+            ServiceLog.Write("[pipe] credential provider reported PASSWORD_FAILED");
             _state.MarkPasswordFailed();
             return;
         }
@@ -183,7 +210,7 @@ public sealed class PipeServer : IAsyncDisposable
             && requestId > 0)
         {
             var matched = _state.TryAcknowledge(requestId);
-            Console.WriteLine($"[pipe] AUTO_UNLOCK_ACK:{requestId} matched={matched}");
+            ServiceLog.Write($"[pipe] AUTO_UNLOCK_ACK:{requestId} matched={matched}");
         }
     }
 
@@ -220,7 +247,7 @@ public sealed class PipeServer : IAsyncDisposable
             NamedPipeServerStream? pipe = null;
             try
             {
-                pipe = CreatePipe(LegacyPipeName, PipeDirection.Out,
+                pipe = CreatePipe(_legacyPipeName, PipeDirection.Out,
                     NamedPipeServerStream.MaxAllowedServerInstances, PipeOptions.None, systemOnly: true);
                 await pipe.WaitForConnectionAsync(ct).ConfigureAwait(false);
                 lock (_gate)
@@ -228,7 +255,7 @@ public sealed class PipeServer : IAsyncDisposable
                     _legacyClients.Add(pipe);
                 }
 
-                Console.WriteLine("[pipe] legacy credential provider connected");
+                ServiceLog.Write("[pipe] legacy credential provider connected");
                 while (!ct.IsCancellationRequested && pipe.IsConnected)
                 {
                     await Task.Delay(1000, ct).ConfigureAwait(false);
@@ -240,7 +267,7 @@ public sealed class PipeServer : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[pipe] legacy error: {ex.Message}");
+                ServiceLog.Write($"[pipe] legacy error: {ex.Message}");
                 try
                 {
                     await Task.Delay(1000, ct).ConfigureAwait(false);
@@ -312,7 +339,7 @@ public sealed class PipeServer : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[pipe] tray accept error: {ex.Message}");
+                ServiceLog.Write($"[pipe] tray accept error: {ex.Message}");
                 try
                 {
                     await Task.Delay(1000, ct).ConfigureAwait(false);
@@ -353,63 +380,130 @@ public sealed class PipeServer : IAsyncDisposable
             }
 
             using var document = JsonDocument.Parse(line);
-            var command = document.RootElement.TryGetProperty("cmd", out var cmdElement)
+            var root = document.RootElement;
+            var command = root.TryGetProperty("cmd", out var cmdElement)
                 ? cmdElement.GetString()
                 : null;
 
-            if (command == "SAVE_CREDENTIAL")
+            if (!IsTrustedTrayClient(clientIdentity))
             {
-                var domain = document.RootElement.TryGetProperty("domain", out var domainElement)
-                    ? domainElement.GetString() ?? ""
-                    : "";
-                var username = document.RootElement.TryGetProperty("username", out var userElement)
-                    ? userElement.GetString() ?? ""
-                    : "";
-                var password = document.RootElement.TryGetProperty("password", out var passwordElement)
-                    ? passwordElement.GetString() ?? ""
-                    : "";
+                ServiceLog.Write($"[pipe] tray client rejected: '{clientIdentity}'");
+                await WriteTrayErrorAsync(writer, "forbidden", "当前会话无权管理电脑钥匙服务")
+                    .ConfigureAwait(false);
+                return;
+            }
 
-                var requested = WindowsIdentityUtil.CombineAccount(domain, username);
-                var error = "";
-                var success = false;
+            switch (command)
+            {
+                case "SAVE_CREDENTIAL":
+                    await HandleSaveCredentialAsync(writer, root, clientIdentity).ConfigureAwait(false);
+                    break;
 
-                if (!WindowsIdentityUtil.IdentityMatches(clientIdentity, requested))
-                {
-                    error = CredentialSaveResult.UserMismatch.ToString();
-                }
-                else if (!WindowsIdentityUtil.VerifyLogon(domain, username, password))
-                {
-                    error = CredentialSaveResult.InvalidPassword.ToString();
-                }
-                else
-                {
-                    var result = _credentials.SaveVerified(domain, username, password);
-                    success = result == CredentialSaveResult.Saved;
-                    error = success ? "" : result.ToString();
-                    if (success)
+                case "GET_STATUS":
+                    await WriteTrayJsonAsync(writer, BuildStatusResponse()).ConfigureAwait(false);
+                    break;
+
+                case "GET_PAIRING":
+                    await WriteTrayJsonAsync(writer, new
                     {
-                        _state.ClearPasswordFailure();
+                        @event = "PAIRING",
+                        pairing = _pairing.Current()
+                    }).ConfigureAwait(false);
+                    break;
+
+                case "LIST_DEVICES":
+                    await WriteTrayJsonAsync(writer, new
+                    {
+                        @event = "DEVICES",
+                        devices = _store.Devices
+                            .Select(d => new { d.DeviceId, d.Name, d.CreatedAt })
+                            .ToList()
+                    }).ConfigureAwait(false);
+                    break;
+
+                case "DELETE_DEVICE":
+                {
+                    var deviceId = root.TryGetProperty("deviceId", out var idElement)
+                        ? idElement.GetString()
+                        : null;
+                    if (string.IsNullOrWhiteSpace(deviceId))
+                    {
+                        await WriteTrayErrorAsync(writer, "invalid_request", "缺少 deviceId")
+                            .ConfigureAwait(false);
+                        break;
+                    }
+
+                    bool removed;
+                    try
+                    {
+                        removed = _store.Remove(deviceId);
+                    }
+                    catch (Exception ex)
+                    {
+                        ServiceLog.Write($"[pipe] delete device failed: {ex.Message}");
+                        await WriteTrayJsonAsync(writer, new
+                        {
+                            @event = "DEVICE_DELETED",
+                            success = false,
+                            error = "write_failed"
+                        }).ConfigureAwait(false);
+                        break;
+                    }
+
+                    if (removed)
+                    {
                         _state.NotifyBaseStateChanged();
                     }
+
+                    await WriteTrayJsonAsync(writer, new
+                    {
+                        @event = "DEVICE_DELETED",
+                        success = removed,
+                        error = removed ? "" : "not_found"
+                    }).ConfigureAwait(false);
+                    break;
                 }
 
-                await writer.WriteLineAsync(JsonSerializer.Serialize(new
+                case "RPC":
                 {
-                    @event = "CREDENTIAL_SAVED",
-                    success,
-                    error
-                })).ConfigureAwait(false);
-            }
-            else if (command == "GET_STATUS")
-            {
-                await writer.WriteLineAsync(JsonSerializer.Serialize(new
-                {
-                    @event = "STATUS",
-                    ready = _state.UnlockReady,
-                    credentialSet = _credentials.IsUsable,
-                    credentialRejected = _state.CredentialRejected,
-                    credentialProviderConnected = IsCredentialProviderConnected
-                })).ConfigureAwait(false);
+                    var request = root.TryGetProperty("request", out var requestElement)
+                        ? requestElement.GetString()
+                        : null;
+                    var handler = _rpcHandler;
+                    if (string.IsNullOrWhiteSpace(request) || handler is null)
+                    {
+                        await WriteTrayErrorAsync(writer, "invalid_request", "RPC 请求无效")
+                            .ConfigureAwait(false);
+                        break;
+                    }
+
+                    string reply;
+                    try
+                    {
+                        reply = handler(request);
+                    }
+                    catch (Exception ex)
+                    {
+                        ServiceLog.Write($"[pipe] RPC failed: {ex.Message}");
+                        reply = JsonSerializer.Serialize(new
+                        {
+                            type = "error",
+                            payload = new { code = "internal", message = ex.Message }
+                        });
+                    }
+
+                    await WriteTrayJsonAsync(writer, new
+                    {
+                        @event = "RPC_RESULT",
+                        reply
+                    }).ConfigureAwait(false);
+                    break;
+                }
+
+                default:
+                    await WriteTrayErrorAsync(writer, "unknown_command", $"未知命令: {command}")
+                        .ConfigureAwait(false);
+                    break;
             }
 
             while (!ct.IsCancellationRequested && pipe.IsConnected)
@@ -421,9 +515,13 @@ public sealed class PipeServer : IAsyncDisposable
         {
             // 正常关闭
         }
+        catch (JsonException)
+        {
+            ServiceLog.Write("[pipe] tray connection received bad json");
+        }
         catch (Exception ex)
         {
-            Console.WriteLine($"[pipe] tray connection error: {ex.Message}");
+            ServiceLog.Write($"[pipe] tray connection error: {ex.Message}");
         }
         finally
         {
@@ -431,10 +529,98 @@ public sealed class PipeServer : IAsyncDisposable
         }
     }
 
+    private object BuildStatusResponse()
+    {
+        var recent = _activity.Snapshot();
+        return new
+        {
+            @event = "STATUS",
+            ready = _state.UnlockReady,
+            credentialSet = _credentials.IsUsable,
+            credentialRejected = _state.CredentialRejected,
+            pairedCount = _store.Devices.Count,
+            credentialProviderConnected = IsCredentialProviderConnected,
+            lanTcpListening = _lan?.TcpListening ?? false,
+            lanUdpListening = _lan?.UdpListening ?? false,
+            lanTcpPort = LanListener.TcpPort,
+            lanUdpPort = LanListener.UdpPort,
+            lastUnlockMethod = recent.LastUnlockMethod,
+            nfcKeyHint = recent.NfcKeyHint,
+            nfcLastUsedAt = recent.NfcLastUsedAt,
+            devMode = _devMode
+        };
+    }
+
+    private async Task HandleSaveCredentialAsync(
+        StreamWriter writer,
+        JsonElement root,
+        string clientIdentity)
+    {
+        var domain = root.TryGetProperty("domain", out var domainElement)
+            ? domainElement.GetString() ?? ""
+            : "";
+        var username = root.TryGetProperty("username", out var userElement)
+            ? userElement.GetString() ?? ""
+            : "";
+        var password = root.TryGetProperty("password", out var passwordElement)
+            ? passwordElement.GetString() ?? ""
+            : "";
+
+        var requested = WindowsIdentityUtil.CombineAccount(domain, username);
+        var error = "";
+        var success = false;
+
+        if (!WindowsIdentityUtil.IdentityMatches(clientIdentity, requested))
+        {
+            error = CredentialSaveResult.UserMismatch.ToString();
+        }
+        else if (!WindowsIdentityUtil.VerifyLogon(domain, username, password))
+        {
+            error = CredentialSaveResult.InvalidPassword.ToString();
+        }
+        else
+        {
+            var result = _credentials.SaveVerified(domain, username, password);
+            success = result == CredentialSaveResult.Saved;
+            error = success ? "" : result.ToString();
+            if (success)
+            {
+                _state.ClearPasswordFailure();
+                _state.NotifyBaseStateChanged();
+            }
+        }
+
+        await WriteTrayJsonAsync(writer, new
+        {
+            @event = "CREDENTIAL_SAVED",
+            success,
+            error
+        }).ConfigureAwait(false);
+    }
+
+    private bool IsTrustedTrayClient(string identity)
+    {
+        if (_devMode)
+        {
+            return true;
+        }
+
+        var activeSid = WindowsIdentityUtil.GetActiveConsoleUserSid()
+                        ?? WindowsIdentityUtil.GetCurrentProcessUserSid();
+        return WindowsIdentityUtil.SidMatchesAccount(activeSid, identity);
+    }
+
+    private static Task WriteTrayJsonAsync(StreamWriter writer, object value)
+        => writer.WriteLineAsync(JsonSerializer.Serialize(value));
+
+    private static Task WriteTrayErrorAsync(StreamWriter writer, string code, string message)
+        => WriteTrayJsonAsync(writer, new { @event = "ERROR", code, message });
+
     private static NamedPipeServerStream CreatePipe(string name, PipeDirection direction, int maxInstances,
         PipeOptions extraOptions, bool systemOnly)
     {
         var security = new PipeSecurity();
+        AddServiceAccountFullControl(security);
         security.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
             PipeAccessRights.FullControl,
@@ -466,6 +652,7 @@ public sealed class PipeServer : IAsyncDisposable
     private NamedPipeServerStream CreateTrayPipe()
     {
         var security = new PipeSecurity();
+        AddServiceAccountFullControl(security);
         security.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
             PipeAccessRights.FullControl,
@@ -481,7 +668,7 @@ public sealed class PipeServer : IAsyncDisposable
             AccessControlType.Allow));
 
         return NamedPipeServerStreamAcl.Create(
-            TrayPipeName,
+            _trayPipeName,
             PipeDirection.InOut,
             NamedPipeServerStream.MaxAllowedServerInstances,
             PipeTransmissionMode.Byte,
@@ -489,6 +676,28 @@ public sealed class PipeServer : IAsyncDisposable
             4096,
             4096,
             security);
+    }
+
+    private static void AddServiceAccountFullControl(PipeSecurity security)
+    {
+        try
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var sid = identity.User;
+            if (sid is null
+                || sid.IsWellKnown(WellKnownSidType.LocalSystemSid)
+                || sid.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid))
+            {
+                return;
+            }
+
+            security.AddAccessRule(new PipeAccessRule(
+                sid, PipeAccessRights.FullControl, AccessControlType.Allow));
+        }
+        catch
+        {
+            // 获取当前账号失败时保留默认 ACL
+        }
     }
 
     public async ValueTask DisposeAsync()
