@@ -18,6 +18,7 @@ internal static class Program
     private static System.Windows.Forms.Timer? _startupTimer;
     private static string? _lastNotifiedPin;
     private static bool _polling;
+    private static bool _exiting;
 
     [STAThread]
     private static void Main(string[] args)
@@ -63,14 +64,7 @@ internal static class Program
         menu.Items.Add("重新开始蓝牙广播", null, (_, _) => RestartBle());
         menu.Items.Add("打开日志目录", null, (_, _) => OpenLogDirectory());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("退出", null, (_, _) =>
-        {
-            _popover?.Close();
-            _ = _ble?.DisposeAsync();
-            _trayIcon?.Dispose();
-            _tray.Visible = false;
-            Application.Exit();
-        });
+        menu.Items.Add("退出", null, (_, _) => ExitApplication());
 
         PairingItem.Click += (_, _) => ShowPairingPin();
         foreach (ToolStripItem item in menu.Items)
@@ -173,6 +167,54 @@ internal static class Program
             OpenLogDirectory);
         _popover.FormClosed += (_, _) => _popover = null;
         _popover.ShowNearTray();
+    }
+
+    private static async void ExitApplication()
+    {
+        if (_exiting)
+        {
+            return;
+        }
+
+        _exiting = true;
+        try
+        {
+            _startupTimer?.Stop();
+            _startupTimer?.Dispose();
+            _startupTimer = null;
+            _popover?.Close();
+            _popover = null;
+
+            if (_tray is not null)
+            {
+                _tray.Visible = false;
+                _tray.ContextMenuStrip = null;
+                _tray.Dispose();
+                _tray = null;
+            }
+
+            if (_ble is not null)
+            {
+                try
+                {
+                    await _ble.DisposeAsync();
+                }
+                catch (Exception ex)
+                {
+                    TrayLog.Write("ble shutdown failed: " + ex);
+                }
+                finally
+                {
+                    _ble = null;
+                }
+            }
+        }
+        finally
+        {
+            _trayIcon?.Dispose();
+            _trayIcon = null;
+            Application.Exit();
+        }
     }
 
     private static async Task PollAsync()

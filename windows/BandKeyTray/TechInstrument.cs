@@ -89,8 +89,8 @@ internal sealed class TechStatusPill : Control
             true);
         BackColor = Color.Transparent;
         Font = TechPalette.BodyBold;
-        Height = 29;
-        Width = 120;
+        Height = 32;
+        Width = 126;
         _animation.Tick += (_, _) =>
         {
             _phase = (_phase + 0.08f) % 1f;
@@ -131,7 +131,7 @@ internal sealed class TechStatusPill : Control
     private void ResizeToText()
     {
         var measured = TextRenderer.MeasureText(_statusText, Font);
-        Width = Math.Max(92, measured.Width + 42);
+        Width = Math.Max(108, measured.Width + 46);
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -148,15 +148,15 @@ internal sealed class TechStatusPill : Control
             ? 0.5f + 0.5f * MathF.Sin(_phase * MathF.PI * 2f)
             : 0.45f;
         using var glow = new SolidBrush(TechDraw.Alpha(_tone, (int)(10 + 34 * pulse)));
-        e.Graphics.FillEllipse(glow, 13 - 3 * pulse, Height / 2f - 3.5f - 3 * pulse, 9 + 6 * pulse, 9 + 6 * pulse);
+        e.Graphics.FillEllipse(glow, 15 - 3 * pulse, Height / 2f - 4f - 3 * pulse, 10 + 6 * pulse, 10 + 6 * pulse);
         using var dot = new SolidBrush(_tone);
-        e.Graphics.FillEllipse(dot, 14, Height / 2f - 3f, 6f, 6f);
+        e.Graphics.FillEllipse(dot, 16, Height / 2f - 3.5f, 7f, 7f);
 
         TextRenderer.DrawText(
             e.Graphics,
             _statusText,
             Font,
-            new Rectangle(28, 0, Width - 34, Height),
+            new Rectangle(32, 0, Width - 40, Height),
             _tone,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
@@ -316,18 +316,19 @@ internal sealed class TechMiniRing : Control
             e.Graphics.DrawArc(arc, ArcRect(center, radius), start, segmentSweep * segmentFill);
         }
 
+        var centerY = Height / 2f;
         TextRenderer.DrawText(
             e.Graphics,
             _centerValue,
             TechPalette.RingValue,
-            new Rectangle(0, (Height - 50) / 2, Width, 34),
+            new Rectangle(0, (int)centerY - 28, Width, 34),
             _tone,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         TextRenderer.DrawText(
             e.Graphics,
             _centerCaption,
             TechPalette.Caption,
-            new Rectangle(0, (Height + 18) / 2, Width, 20),
+            new Rectangle(0, (int)centerY + 9, Width, 18),
             TechPalette.Muted,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
     }
@@ -404,34 +405,40 @@ internal sealed class TechMetric : Control
             ControlStyles.SupportsTransparentBackColor,
             true);
         BackColor = Color.Transparent;
-        Height = 63;
+        Height = 84;
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         var rect = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
-        using var path = TechDraw.RoundedRect(rect, 10f);
-        using var fill = new SolidBrush(TechPalette.Surface);
+        using var path = TechDraw.RoundedRect(rect, 12f);
+        using var fill = new LinearGradientBrush(
+            rect,
+            TechPalette.SurfaceAlt,
+            TechPalette.Surface,
+            LinearGradientMode.Vertical);
         e.Graphics.FillPath(fill, path);
         using var border = new Pen(TechPalette.BorderSoft);
         e.Graphics.DrawPath(border, path);
 
+        using var glow = new SolidBrush(TechDraw.Alpha(_tone, 18));
+        e.Graphics.FillEllipse(glow, Width - 28, 10, 18, 18);
         using var dot = new SolidBrush(TechDraw.Alpha(_tone, 190));
-        e.Graphics.FillEllipse(dot, Width - 16, 12, 4, 4);
+        e.Graphics.FillEllipse(dot, Width - 22, 16, 6, 6);
 
         TextRenderer.DrawText(
             e.Graphics,
             _caption,
             TechPalette.Body,
-            new Rectangle(12, 8, Width - 26, 20),
+            new Rectangle(16, 12, Width - 46, 22),
             TechPalette.Muted,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         TextRenderer.DrawText(
             e.Graphics,
             _value,
             TechPalette.MetricValue,
-            new Rectangle(11, 27, Width - 22, 28),
+            new Rectangle(15, 39, Width - 30, 31),
             _tone,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
@@ -1180,7 +1187,9 @@ internal sealed class TechActionButton : Button
 
         var accent = Accent ?? TechPalette.Mint;
         var rect = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
-        using var path = TechDraw.RoundedRect(rect, 10f);
+        using var path = TechDraw.RoundedRect(rect, 12f);
+        var iconPlate = new RectangleF(14, Height / 2f - 18f, 36, 36);
+        using var iconPlatePath = TechDraw.RoundedRect(iconPlate, 10f);
 
         if (Primary && Enabled)
         {
@@ -1194,7 +1203,12 @@ internal sealed class TechActionButton : Button
                 e.Graphics.FillPath(fill, path);
             }
 
-            DrawGlyph(e.Graphics, TechPalette.Background, 18, Height / 2f, _pressAmount);
+            using (var plateFill = new SolidBrush(TechDraw.Alpha(TechPalette.Background, 22)))
+            {
+                e.Graphics.FillPath(plateFill, iconPlatePath);
+            }
+
+            DrawGlyph(e.Graphics, TechPalette.Background, 23, Height / 2f, _pressAmount);
             DrawText(e.Graphics, TechPalette.Background, TechPalette.Background);
         }
         else
@@ -1214,7 +1228,13 @@ internal sealed class TechActionButton : Button
                 e.Graphics.DrawPath(border, path);
             }
 
-            DrawGlyph(e.Graphics, accent, 18, Height / 2f, _hoverAmount);
+            using (var plateFill = new SolidBrush(
+                       TechDraw.Alpha(accent, 12 + (int)(10 * _hoverAmount))))
+            {
+                e.Graphics.FillPath(plateFill, iconPlatePath);
+            }
+
+            DrawGlyph(e.Graphics, accent, 23, Height / 2f, _hoverAmount);
             DrawText(
                 e.Graphics,
                 TechDraw.Blend(TechPalette.Text, accent, _hoverAmount * 0.65f),
@@ -1235,24 +1255,26 @@ internal sealed class TechActionButton : Button
                 graphics,
                 Text,
                 Font,
-                new Rectangle(52, 0, Width - 64, Height),
+                new Rectangle(62, 0, Width - 76, Height),
                 main,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             return;
         }
 
+        const int contentHeight = 42;
+        var top = (Height - contentHeight) / 2;
         TextRenderer.DrawText(
             graphics,
             Text,
             Font,
-            new Rectangle(52, 7, Width - 64, 21),
+            new Rectangle(62, top, Width - 76, 22),
             main,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         TextRenderer.DrawText(
             graphics,
             SubText,
-            TechPalette.Caption,
-            new Rectangle(52, 26, Width - 64, 17),
+            TechPalette.BodySmall,
+            new Rectangle(62, top + 24, Width - 76, 18),
             sub,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }

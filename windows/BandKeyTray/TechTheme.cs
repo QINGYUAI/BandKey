@@ -33,13 +33,14 @@ internal static class TechPalette
 
     public static readonly Font Body = new("Microsoft YaHei UI", 9.5f);
     public static readonly Font BodyBold = new("Microsoft YaHei UI", 9.5f, FontStyle.Bold);
+    public static readonly Font BodySmall = new("Microsoft YaHei UI", 8.75f);
     public static readonly Font Caption = new("Consolas", 8.25f, FontStyle.Bold);
     public static readonly Font Title = new("Microsoft YaHei UI", 12f, FontStyle.Bold);
     public static readonly Font Display = new("Microsoft YaHei UI", 16f, FontStyle.Bold);
     public static readonly Font Mono = new("Consolas", 9f);
     public static readonly Font Pin = new("Consolas", 30f, FontStyle.Bold);
-    public static readonly Font RingValue = new("Microsoft YaHei UI", 14f, FontStyle.Bold);
-    public static readonly Font MetricValue = new("Microsoft YaHei UI", 11f, FontStyle.Bold);
+    public static readonly Font RingValue = new("Microsoft YaHei UI", 16f, FontStyle.Bold);
+    public static readonly Font MetricValue = new("Microsoft YaHei UI", 12f, FontStyle.Bold);
     public static readonly Font Button = new("Microsoft YaHei UI", 9.5f, FontStyle.Bold);
 }
 

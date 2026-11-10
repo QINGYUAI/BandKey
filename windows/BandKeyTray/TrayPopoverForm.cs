@@ -42,7 +42,7 @@ internal sealed class TrayPopoverForm : TechForm
         Action showCredential,
         Action restartBle,
         Action openLog)
-        : base("控制中心", new Size(476, 572))
+        : base("控制中心", new Size(560, 712))
     {
         _api = api;
         _bleState = bleState;
@@ -54,6 +54,7 @@ internal sealed class TrayPopoverForm : TechForm
 
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
+        Body.Padding = new Padding(32, 10, 32, 24);
         BuildContent();
 
         _pollTimer.Tick += (_, _) => _ = RefreshAsync();
@@ -70,7 +71,7 @@ internal sealed class TrayPopoverForm : TechForm
         var screen = Screen.FromPoint(Cursor.Position).WorkingArea;
         var x = Cursor.Position.X - Width / 2;
         x = Math.Clamp(x, screen.Left + 12, screen.Right - Width - 12);
-        var y = screen.Bottom - Height - 12;
+        var y = Math.Max(screen.Top + 12, screen.Bottom - Height - 12);
         Location = new Point(x, y);
         Show();
         Activate();
@@ -82,19 +83,24 @@ internal sealed class TrayPopoverForm : TechForm
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 8,
+            RowCount = 13,
             BackColor = TechPalette.Background,
             Margin = new Padding(0)
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 31));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 158));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 14));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 166));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 182));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 8));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 8));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 180));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 10));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
 
         var statusRow = new Panel
         {
@@ -110,7 +116,7 @@ internal sealed class TrayPopoverForm : TechForm
         _version.ForeColor = TechPalette.Dim;
         _version.BackColor = Color.Transparent;
         _version.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        _version.Location = new Point(statusRow.Width - _version.Width, 6);
+        _version.Location = new Point(statusRow.Width - _version.Width, 8);
         statusRow.Controls.Add(_servicePill);
         statusRow.Controls.Add(_version);
         statusRow.Resize += (_, _) => _version.Left = Math.Max(0, statusRow.Width - _version.Width);
@@ -119,8 +125,8 @@ internal sealed class TrayPopoverForm : TechForm
         {
             Dock = DockStyle.Fill,
             Margin = new Padding(0),
-            Padding = new Padding(20, 14, 14, 14),
-            Radius = 14
+            Padding = new Padding(26, 20, 22, 20),
+            Radius = 16
         };
         var heroLayout = new TableLayoutPanel
         {
@@ -131,7 +137,7 @@ internal sealed class TrayPopoverForm : TechForm
             Margin = new Padding(0)
         };
         heroLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        heroLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 124));
+        heroLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
         heroLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var heroCopy = new TableLayoutPanel
@@ -144,7 +150,7 @@ internal sealed class TrayPopoverForm : TechForm
         };
         heroCopy.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         heroCopy.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
-        heroCopy.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        heroCopy.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         heroCopy.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         heroCopy.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
 
@@ -160,7 +166,7 @@ internal sealed class TrayPopoverForm : TechForm
         _heroTitle.Text = "正在检查本机状态";
         _heroTitle.AutoSize = false;
         _heroTitle.Dock = DockStyle.Fill;
-        _heroTitle.Font = new Font("Microsoft YaHei UI", 17f, FontStyle.Bold);
+        _heroTitle.Font = new Font("Microsoft YaHei UI", 19f, FontStyle.Bold);
         _heroTitle.ForeColor = TechPalette.Text;
         _heroTitle.BackColor = Color.Transparent;
         _heroTitle.TextAlign = ContentAlignment.MiddleLeft;
@@ -173,7 +179,7 @@ internal sealed class TrayPopoverForm : TechForm
         _heroDescription.ForeColor = TechPalette.Muted;
         _heroDescription.BackColor = Color.Transparent;
         _heroDescription.TextAlign = ContentAlignment.TopLeft;
-        _heroDescription.Margin = new Padding(0, 2, 12, 0);
+        _heroDescription.Margin = new Padding(0, 3, 16, 0);
 
         var mode = new Label
         {
@@ -193,7 +199,7 @@ internal sealed class TrayPopoverForm : TechForm
         heroCopy.Controls.Add(mode, 0, 3);
 
         _trustRing.Dock = DockStyle.Fill;
-        _trustRing.Margin = new Padding(4, 4, 0, 4);
+        _trustRing.Margin = new Padding(8, 4, 0, 4);
         heroLayout.Controls.Add(heroCopy, 0, 0);
         heroLayout.Controls.Add(_trustRing, 1, 0);
         hero.Controls.Add(heroLayout);
@@ -236,25 +242,25 @@ internal sealed class TrayPopoverForm : TechForm
         };
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
-        actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
-        actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+        actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
+        actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
+        actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
 
         ConfigureAction(_pairingAction, "查看配对 PIN", TechActionGlyph.Key, true);
         _pairingAction.SubText = "等待手机发起配对";
         _pairingAction.Dock = DockStyle.Fill;
-        _pairingAction.Margin = new Padding(0, 0, 0, 7);
+        _pairingAction.Margin = new Padding(0, 0, 0, 6);
         actions.SetColumnSpan(_pairingAction, 2);
 
         ConfigureAction(_devicesAction, "已配对设备", TechActionGlyph.Devices, false);
         _devicesAction.SubText = "设备管理";
         _devicesAction.Dock = DockStyle.Fill;
-        _devicesAction.Margin = new Padding(0, 0, 5, 5);
+        _devicesAction.Margin = new Padding(0, 0, 5, 6);
 
         ConfigureAction(_credentialAction, "设置解锁凭据", TechActionGlyph.Lock, false);
         _credentialAction.SubText = "Windows 账户密码";
         _credentialAction.Dock = DockStyle.Fill;
-        _credentialAction.Margin = new Padding(5, 0, 0, 5);
+        _credentialAction.Margin = new Padding(5, 0, 0, 6);
 
         ConfigureAction(_refreshAction, "重新广播", TechActionGlyph.Refresh, false);
         _refreshAction.SubText = "蓝牙外设";
@@ -278,6 +284,11 @@ internal sealed class TrayPopoverForm : TechForm
             BackColor = TechPalette.Background,
             Margin = new Padding(0)
         };
+        footer.Paint += (_, e) =>
+        {
+            using var divider = new Pen(TechPalette.BorderSoft);
+            e.Graphics.DrawLine(divider, 0, 0, footer.Width, 0);
+        };
         var local = new Label
         {
             Text = "LOCAL ONLY · DPAPI",
@@ -285,7 +296,7 @@ internal sealed class TrayPopoverForm : TechForm
             Font = TechPalette.Caption,
             ForeColor = TechPalette.Dim,
             BackColor = Color.Transparent,
-            Location = new Point(0, 4)
+            Location = new Point(0, 6)
         };
         var platform = new Label
         {
@@ -295,7 +306,7 @@ internal sealed class TrayPopoverForm : TechForm
             ForeColor = TechPalette.Dim,
             BackColor = Color.Transparent,
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(footer.Width - 120, 4)
+            Location = new Point(footer.Width - 120, 6)
         };
         footer.Controls.Add(local);
         footer.Controls.Add(platform);
@@ -303,9 +314,11 @@ internal sealed class TrayPopoverForm : TechForm
 
         root.Controls.Add(statusRow, 0, 0);
         root.Controls.Add(hero, 0, 2);
-        root.Controls.Add(metrics, 0, 4);
-        root.Controls.Add(actions, 0, 5);
-        root.Controls.Add(footer, 0, 7);
+        root.Controls.Add(CreateSectionHeader("LIVE TELEMETRY", "实时通道"), 0, 4);
+        root.Controls.Add(metrics, 0, 6);
+        root.Controls.Add(CreateSectionHeader("QUICK ACTIONS", "快捷操作"), 0, 8);
+        root.Controls.Add(actions, 0, 10);
+        root.Controls.Add(footer, 0, 12);
 
         _pairingAction.Click += (_, _) => _showPairing();
         _devicesAction.Click += (_, _) => _showDevices();
@@ -325,7 +338,49 @@ internal sealed class TrayPopoverForm : TechForm
         button.Text = text;
         button.Glyph = glyph;
         button.Primary = primary;
-        button.Height = primary ? 52 : 48;
+        button.Height = primary ? 60 : 54;
+    }
+
+    private static Control CreateSectionHeader(string eyebrow, string title)
+    {
+        var header = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = TechPalette.Background,
+            Margin = new Padding(0)
+        };
+        header.Paint += (_, e) =>
+        {
+            var codeSize = TextRenderer.MeasureText(eyebrow, TechPalette.Caption);
+            var titleSize = TextRenderer.MeasureText(title, TechPalette.BodyBold);
+            var centerY = header.Height / 2f;
+
+            TextRenderer.DrawText(
+                e.Graphics,
+                eyebrow,
+                TechPalette.Caption,
+                new Rectangle(0, 0, codeSize.Width + 2, header.Height),
+                TechPalette.Mint,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(
+                e.Graphics,
+                title,
+                TechPalette.BodyBold,
+                new Rectangle(header.Width - titleSize.Width - 2, 0, titleSize.Width + 2, header.Height),
+                TechPalette.Muted,
+                TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+
+            var lineStart = codeSize.Width + 12;
+            var lineEnd = header.Width - titleSize.Width - 12;
+            if (lineEnd <= lineStart)
+            {
+                return;
+            }
+
+            using var line = new Pen(TechPalette.BorderSoft);
+            e.Graphics.DrawLine(line, lineStart, centerY, lineEnd, centerY);
+        };
+        return header;
     }
 
     private async Task RefreshAsync()
