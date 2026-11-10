@@ -7,6 +7,7 @@
 ```text
 bandkey/
 ├── docs/protocol.md                      # 协议、双管道、LAN 与自动解锁时序
+├── docs/protocol-v2-status.md            # v2 状态查询与最终解锁回执
 ├── windows/
 │   ├── BandKeyService/                   # Windows 服务（.NET 8，WebSocket + LAN + 管道）
 │   ├── BandKeyTray/                      # 托盘程序（科技风 UI、凭据设置、配对 PIN、BLE GATT）
@@ -14,6 +15,8 @@ bandkey/
 │   └── BandKeyCredentialProvider/        # 锁屏解锁插件（C++17）
 ├── android/                              # Android 端（Kotlin + Compose）
 ├── installer/BandKey.iss                 # Inno Setup 安装脚本
+├── build-release.ps1                     # 统一打包入口
+├── dist/                                 # 最终产物（latest + 版本归档）
 └── tools/
     ├── e2e_test.ps1                      # 协议端到端测试
     ├── pipe_e2e_test.ps1                 # 自动解锁管道测试
@@ -31,7 +34,7 @@ bandkey/
 | Credential Provider | C++17 + WinSDK COM，接入 Winlogon 锁屏 |
 | 手机 ↔ 电脑 | WebSocket / BLE GATT / LAN TCP，统一 JSON + ECDSA 签名 |
 | Android | Kotlin + Jetpack Compose + OkHttp + Keystore + NFC Reader Mode |
-| 打包 | Inno Setup + 自包含单文件发布 |
+| 打包 | Inno Setup + 自包含单文件发布，统一输出到 `dist` |
 
 核心安全设计：
 
@@ -40,6 +43,31 @@ bandkey/
 - Windows 密码只在托盘通过受保护管道提交，服务二次验证后用 DPAPI `LocalMachine` 加密保存。
 - 凭据提供程序运行在 SYSTEM / Winlogon 上下文，只读取本机凭据文件，不直接联网。
 - NFC 卡片只保存随机身份令牌，手机本地匹配后用现有 ECDSA 私钥签名；卡片不包含 Windows 密码、手机私钥或原始 UID。
+
+## v1.8.0 状态与最终回执
+
+v1.8.0 将协议升级到 v2，修正“请求已投递”被误当成“电脑已解锁”的问题：
+
+- 手机通过 `status` 查询电脑的真实状态，不再仅凭本地配对记录显示“已就绪”。
+- `unlock_result.accepted=true` 只表示服务端验签通过并已投递，最终结果由 `unlock_status` 查询。
+- 状态流转为 `accepted -> submitted -> succeeded / failed`，只有凭据提供程序的 `ReportResult` 能确认登录成功。
+- 手机遇到 12 秒轮询超时会显示“已提交解锁请求”，并提供“刷新最终状态”，不会提前展示成功页。
+- 电脑离线、设备被撤销、Windows 凭据缺失/失效、未锁屏或 CP 未就绪都会在手机端明确区分。
+- 旧版电脑服务不支持 `status` 时，手机提示升级电脑端，而不是误报离线。
+
+字段和内部管道消息见 [docs/protocol-v2-status.md](docs/protocol-v2-status.md)。
+
+## v1.8.1 最终回执可靠性修复
+
+v1.8.1 修复“电脑已实际解锁，手机端仍显示失败”的会话切换竞态：
+
+- Windows 登录成功后 LogonUI 可能先断开 CP 命名管道，导致 `UNLOCK_RESULT:success`
+  写入已失效的管道而丢失。
+- CP 现在会在 `ReportResult` 中把最终结果原子写入
+  `C:\ProgramData\BandKey\outcomes\<requestId>.result`，服务端查询状态时补收。
+- CP 断开后服务端保留 8 秒宽限期，不再立即把请求标记为 `component_disconnected`；
+  宽限期内到达的成功结果仍会正常收敛为 `succeeded`。
+- 新增管道回归：正常回执、断开后结果文件补交、断开后无结果超时失败。
 
 ## 快速开始（Windows）
 
@@ -64,17 +92,23 @@ $dll = "windows\BandKeyService\bin\Release\net8.0\BandKeyService.dll"
 
 ## 测试
 
-协议端到端测试（配对 + 解锁 + 防重放）：
+协议端到端测试（状态查询 + 配对 + 解锁 + 最终状态 + 防重放）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\e2e_test.ps1
 ```
 
-自动解锁管道测试（`UNLOCK_READY` → `AUTO_UNLOCK` → ACK）：
+自动解锁管道测试（`UNLOCK_READY` → `AUTO_UNLOCK` → ACK → SUBMITTED → 最终成功）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\pipe_e2e_test.ps1
+powershell -ExecutionPolicy Bypass -File tools\pipe_e2e_test.ps1 -DropAfterSubmit
+powershell -ExecutionPolicy Bypass -File tools\pipe_e2e_test.ps1 -DropWithoutResult
 ```
+
+`-DropAfterSubmit` 模拟 CP 提交后管道先断开、随后通过结果文件补交成功，
+预期手机最终收到 `state=succeeded`；`-DropWithoutResult` 模拟断开后没有任何
+最终结果，预期 8 秒宽限期后收到 `state=failed`、`error=component_disconnected`。
 
 局域网测试（UDP 发现 + TCP 配对/解锁）：
 
@@ -105,6 +139,9 @@ python tools\lan_smoke_test.py
     -> BandKeyPipe: AUTO_UNLOCK:<requestId>
     -> Credential Provider 读取凭据并调用 KerbInteractiveLogon
     -> AUTO_UNLOCK_ACK:<requestId>
+    -> AUTO_UNLOCK_SUBMITTED:<requestId>
+    -> UNLOCK_RESULT:<requestId>:success|credential_invalid|logon_failure
+    -> 手机 unlock_status 轮询到 succeeded / failed
 ```
 
 如果 Windows 拒绝保存的密码，CP 回写 `PASSWORD_FAILED`，服务停止自动尝试，直到用户在托盘重新保存凭据。
@@ -240,6 +277,13 @@ regsvr32 build\Release\BandKeyCredentialProvider.dll
 
 安装包会自动注册 COM CLSID 与 Credential Provider 键。
 
+升级注意事项：
+
+- 1.8.1 安装器保留与 1.7.0 相同的 Inno `AppId`，可直接覆盖升级，不会生成两套卸载记录。
+- 安装器会停止旧服务，并用 `sc config` 更新已有 `BandKeyService` 的路径，避免只执行 `sc create` 导致服务仍指向旧目录。
+- 凭据提供程序 DLL 可能仍被 LogonUI 加载。安装完成后请**重启电脑或注销再登录**，确保新版 CP 生效。
+- 重启前手机端可能仍看到旧 CP 行为或“电脑服务版本过旧”，这是升级过程中的正常现象。
+
 ## Android 端
 
 工程位于 `android/`，已包含 Gradle Wrapper、应用图标、Compose 主题和配对/解锁界面。
@@ -260,7 +304,10 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 powershell -ExecutionPolicy Bypass -File build.ps1 assembleRelease
 ```
 
-产物：`app\build\outputs\apk\debug\app-debug.apk` 或 `app\build\outputs\apk\release\app-release.apk`。
+Debug 产物：`app\build\outputs\apk\debug\app-debug.apk`。
+
+Release 产物固定复制到 `dist\latest\BandKey.apk`，同时保留版本归档
+`dist\<version>\BandKey-<version>-android.apk`（由 `assembleRelease` 自动完成）。
 
 Release 使用仓库内置的开发签名（`android/bandkey-release.keystore` + `android/keystore.properties`，别名 `bandkey`）。仅用于侧载测试；正式发布请替换为自己的签名并妥善保管密钥。
 
@@ -275,21 +322,50 @@ Release 默认启用 R8 混淆与资源收缩。依赖下载需要代理时，�
 - 「WiFi」模式：直接连接 `ws://<主机IP>:23234/bandkey`。
 - UI 使用深色太空背景、雷达脉冲动画、状态卡片、模式切换胶囊和渐变主按钮。
 
-## 打包安装包
+## 统一打包入口
 
-先发布服务与托盘，再编译 CP，最后运行 Inno Setup：
+所有最终产物固定输出到仓库根目录的 `dist`，不再从 `installer\Output` 或 Gradle
+深层目录查找：
+
+```text
+dist/
+├── 1.8.1/
+│   ├── BandKey-1.8.1-windows-x64.exe
+│   ├── BandKey-1.8.1-android.apk
+│   └── SHA256SUMS.txt
+└── latest/
+    ├── BandKey-Setup.exe
+    ├── BandKey.apk
+    ├── SHA256SUMS.txt
+    └── VERSION.txt
+```
+
+完整打包（Windows 安装包 + Android Release APK）：
 
 ```powershell
-$dotnet = "$env:USERPROFILE\.dotnet\dotnet.exe"
-& $dotnet publish windows\BandKeyService -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
-& $dotnet publish windows\BandKeyTray -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
-
-cd windows\BandKeyCredentialProvider
-powershell -ExecutionPolicy Bypass -File build.ps1
-
-cd ..\..
-& "C:\Users\13086\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\BandKey.iss
+.\build-release.ps1
 ```
+
+只打包单端：
+
+```powershell
+.\build-release.ps1 -SkipAndroid
+.\build-release.ps1 -SkipWindows
+```
+
+脚本会从 `installer\BandKey.iss` 的 `AppVersion` 读取版本号，校验 Windows
+Service、Tray 与 Android 的版本是否一致，然后执行发布、CP 编译、Inno Setup
+和 Android Release 构建，最后生成 `dist\latest` 固定入口及 SHA256 校验文件。
+
+日常安装/分发请固定使用：
+
+- Windows：`dist\latest\BandKey-Setup.exe`
+- Android：`dist\latest\BandKey.apk`
+
+版本归档位于 `dist\<version>`，便于回溯历史版本。直接运行
+`android\build.ps1 assembleRelease` 也会通过 Gradle finalizer 自动复制到
+`dist`；直接运行 `ISCC installer\BandKey.iss` 也会输出到
+`dist\<version>`。
 
 不要并行执行 `dotnet publish` 与 `ISCC.exe`：安装器会读取发布目录，并发可能导致缺文件。
 
@@ -315,6 +391,7 @@ cd ..\..
 - [x] BLE GATT + LAN TCP/UDP 回退
 - [x] Android Keystore 配对持久化
 - [x] PC / Android 科技风 UI
+- [x] 协议 v2 真实状态查询与最终解锁回执
 - [ ] 真实 Winlogon 锁屏全链路回归
 - [ ] 证书登录（真正无密码）
 - [ ] 心跳与连接状态可视化

@@ -49,11 +49,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,15 +68,20 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import java.security.KeyPair
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
@@ -271,7 +278,24 @@ private data class UnlockReceipt(
     val at: Long,
     val target: String,
     val channel: String,
-    val keyHint: String? = null
+    val keyHint: String? = null,
+    val state: String = "succeeded",
+    val requestId: Long? = null
+)
+
+private data class PcStatus(
+    val online: Boolean = false,
+    val checked: Boolean = false,
+    val paired: Boolean = false,
+    val revoked: Boolean = false,
+    val credentialSet: Boolean = false,
+    val credentialRejected: Boolean = false,
+    val credentialProviderConnected: Boolean = false,
+    val isLocked: Boolean = false,
+    val unlockReady: Boolean = false,
+    val pcName: String = "",
+    val serverVersion: String = "",
+    val protocolVersion: Int = 1
 )
 
 private data class NfcOverwriteTarget(
@@ -314,12 +338,14 @@ private fun BandKeyScreen(
     var pairError by remember { mutableStateOf<String?>(null) }
     var pairingRemaining by remember { mutableStateOf(300) }
     var busy by remember { mutableStateOf(false) }
-    var credentialReady by remember { mutableStateOf(false) }
+    var pcStatus by remember { mutableStateOf(PcStatus()) }
+    var statusRefreshing by remember { mutableStateOf(false) }
     var activeChannel by remember { mutableStateOf<String?>(null) }
     var showPairing by remember { mutableStateOf(false) }
     var pendingUnpair by remember { mutableStateOf(false) }
     var uiError by remember { mutableStateOf<UiError?>(null) }
     var receipt by remember { mutableStateOf<UnlockReceipt?>(null) }
+    var receiptNotice by remember { mutableStateOf("") }
     var nfcAvailability by remember { mutableStateOf(nfcAvailabilityProvider()) }
     var nfcKeys by remember { mutableStateOf<List<NfcKeyRecord>>(emptyList()) }
     var nfcPhase by remember { mutableStateOf(NfcPhase.IDLE) }
@@ -332,6 +358,11 @@ private fun BandKeyScreen(
     var nfcOverwriteTarget by remember { mutableStateOf<NfcOverwriteTarget?>(null) }
     var nfcLastPurpose by remember { mutableStateOf(NfcScanPurpose.UNLOCK) }
 
+    val credentialReady = pcStatus.online
+        && pcStatus.paired
+        && pcStatus.credentialSet
+        && !pcStatus.credentialRejected
+
     LaunchedEffect(Unit) {
         val record = withContext(Dispatchers.IO) { pairingStore.load() }
         if (record != null) {
@@ -340,7 +371,6 @@ private fun BandKeyScreen(
                     keyPair = loaded
                     deviceId = record.deviceId
                     pairedAt = record.pairedAt
-                    credentialReady = true
                     deviceName = forName(record.deviceName, initialDeviceName)
                     status = "已加载本机配对信息，可直接解锁"
                 }
@@ -414,6 +444,103 @@ private fun BandKeyScreen(
         } finally {
             primary.close()
         }
+    }
+
+    fun applyServerStatus(payload: JSONObject) {
+        pcStatus = PcStatus(
+            online = payload.optBoolean("online", true),
+            checked = true,
+            paired = payload.optBoolean("paired"),
+            revoked = payload.optBoolean("revoked"),
+            credentialSet = payload.optBoolean("credentialSet"),
+            credentialRejected = payload.optBoolean("credentialRejected"),
+            credentialProviderConnected = payload.optBoolean("credentialProviderConnected"),
+            isLocked = payload.optBoolean("isLocked"),
+            unlockReady = payload.optBoolean("unlockReady"),
+            pcName = payload.optString("pcName", ""),
+            serverVersion = payload.optString("serverVersion", ""),
+            protocolVersion = payload.optInt("protocolVersion", 1)
+        )
+        status = when {
+            pcStatus.protocolVersion < 2 -> "电脑服务版本过旧，请升级 BandKey 后再试"
+            else -> pcStatusSummary(pcStatus)
+        }
+    }
+
+    fun applyLegacyServerStatus() {
+        pcStatus = pcStatus.copy(
+            online = true,
+            checked = true,
+            paired = true,
+            revoked = false,
+            credentialProviderConnected = false,
+            isLocked = false,
+            unlockReady = false,
+            protocolVersion = 1
+        )
+        status = "电脑服务版本过旧，请升级电脑端 BandKey 后再试"
+    }
+
+    fun refreshStatus() {
+        if (busy || statusRefreshing || keyPair == null || deviceId.isEmpty()) {
+            return
+        }
+
+        scope.launch {
+            statusRefreshing = true
+            try {
+                runWithTransport { client ->
+                    val response = client.serverStatus(deviceId)
+                    applyServerStatus(response.getJSONObject("payload"))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ProtocolException) {
+                if (e.message.orEmpty().contains("unknown_type")) {
+                    applyLegacyServerStatus()
+                } else {
+                    pcStatus = pcStatus.copy(
+                        online = false,
+                        checked = true,
+                        credentialProviderConnected = false,
+                        isLocked = false,
+                        unlockReady = false
+                    )
+                    activeChannel = null
+                    status = "电脑离线，等待重新连接"
+                }
+            } catch (e: Exception) {
+                pcStatus = pcStatus.copy(
+                    online = false,
+                    checked = true,
+                    credentialProviderConnected = false,
+                    isLocked = false,
+                    unlockReady = false
+                )
+                activeChannel = null
+                status = "电脑离线，等待重新连接"
+            } finally {
+                statusRefreshing = false
+            }
+        }
+    }
+
+    LaunchedEffect(keyPair, deviceId) {
+        if (keyPair != null && deviceId.isNotEmpty()) {
+            refreshStatus()
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentRefreshStatus by rememberUpdatedState { refreshStatus() }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                currentRefreshStatus()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     fun startPairing() {
@@ -499,10 +626,13 @@ private fun BandKeyScreen(
             try {
                 runWithTransport { client ->
                     val devId = client.pairConfirm(id, pinInput)
+                    val statusAttempt = runCatching {
+                        client.serverStatus(devId).getJSONObject("payload")
+                    }
+                    val statusPayload = statusAttempt.getOrNull()
                     val at = System.currentTimeMillis()
                     deviceId = devId
                     pairedAt = at
-                    credentialReady = true
                     val record = PairingRecord(
                         deviceId = devId,
                         deviceName = deviceName.ifBlank { "我的手机" },
@@ -515,7 +645,13 @@ private fun BandKeyScreen(
                     pinInput = ""
                     showPairing = false
                     tab = MainTab.UNLOCK
-                    status = "配对成功，配对信息已安全保存"
+                    if (statusPayload != null) {
+                        applyServerStatus(statusPayload)
+                    } else if (statusAttempt.exceptionOrNull()?.message.orEmpty().contains("unknown_type")) {
+                        applyLegacyServerStatus()
+                    } else {
+                        status = "配对成功，正在等待电脑状态确认"
+                    }
                 }
             } catch (e: Exception) {
                 val raw = e.message.orEmpty()
@@ -529,6 +665,31 @@ private fun BandKeyScreen(
                 busy = false
             }
         }
+    }
+
+    suspend fun awaitUnlockOutcome(
+        client: ProtocolClient,
+        requestId: Long
+    ): Pair<String, String?> {
+        val deadline = System.currentTimeMillis() + 12_000
+        while (System.currentTimeMillis() < deadline) {
+            val response = try {
+                client.unlockStatus(requestId)
+            } catch (e: ProtocolException) {
+                if (e.message.orEmpty().contains("unknown_type")) {
+                    return "submitted" to null
+                }
+                throw e
+            }
+
+            val payload = response.getJSONObject("payload")
+            val state = payload.optString("state", "submitted")
+            if (state == "succeeded" || state == "failed") {
+                return state to payload.optString("error").takeIf { it.isNotBlank() }
+            }
+            delay(600)
+        }
+        return "submitted" to null
     }
 
     fun unlock(channelLabel: String? = null, nfcKeyHint: String? = null) {
@@ -548,6 +709,9 @@ private fun BandKeyScreen(
             busy = true
             uiError = null
             receipt = null
+            receiptNotice = ""
+            var requestId = 0L
+            var outcomeState = "submitted"
             status = "正在验证签名并请求解锁…"
             try {
                 runWithTransport { client ->
@@ -557,37 +721,137 @@ private fun BandKeyScreen(
                         method = if (nfcKeyHint == null) "phone" else "nfc",
                         keyHint = nfcKeyHint
                     )
-                    val ok = result.getJSONObject("payload").optBoolean("ok")
-                    if (!ok) {
+                    val payload = result.getJSONObject("payload")
+                    val accepted = payload.optBoolean("accepted", payload.optBoolean("ok"))
+                    if (!accepted) {
                         throw ProtocolException("unlock_denied: 电脑拒绝了本次解锁请求")
+                    }
+                    requestId = payload.optLong("requestId", 0L)
+                    if (requestId <= 0) {
+                        throw ProtocolException("bad_response: 电脑没有返回解锁请求编号")
+                    }
+
+                    val (state, error) = awaitUnlockOutcome(client, requestId)
+                    outcomeState = state
+                    if (state == "failed") {
+                        throw ProtocolException("unlock_failed:${error ?: "logon_failure"}")
                     }
                 }
                 val transport = if (activeChannel == "lan") "局域网 TCP" else "蓝牙 LE"
                 val channel = channelLabel ?: transport
                 receipt = UnlockReceipt(
                     at = System.currentTimeMillis(),
-                    target = targetLabel(serverUrl, mode),
+                    target = pcStatus.pcName.ifBlank { targetLabel(serverUrl, mode) },
                     channel = channel,
-                    keyHint = nfcKeyHint
+                    keyHint = nfcKeyHint,
+                    state = outcomeState,
+                    requestId = requestId
                 )
-                credentialReady = true
-                status = "解锁成功，电脑正在进入桌面"
                 if (nfcKeyHint != null) {
                     nfcNotice = "NFC 验证成功 · $nfcKeyHint"
                 }
+                pcStatus = pcStatus.copy(
+                    online = true,
+                    isLocked = outcomeState != "succeeded",
+                    credentialProviderConnected = outcomeState != "succeeded",
+                    unlockReady = outcomeState != "succeeded"
+                )
+                status = if (outcomeState == "succeeded") {
+                    "Windows 已确认登录成功"
+                } else {
+                    "已提交解锁请求，等待 Windows 完成登录"
+                }
+                if (nfcKeyHint != null && outcomeState != "succeeded") {
+                    nfcNotice = "NFC 已提交 · 等待 Windows 登录结果"
+                }
             } catch (e: Exception) {
                 val raw = e.message.orEmpty()
-                credentialReady = when {
-                    raw.contains("no_credential") -> false
-                    raw.contains("password_invalid") -> false
-                    raw.contains("unlock_not_ready") -> false
-                    else -> credentialReady
+                pcStatus = when {
+                    raw.contains("no_credential") -> pcStatus.copy(credentialSet = false)
+                    raw.contains("credential_unreadable") -> pcStatus.copy(credentialSet = false)
+                    raw.contains("password_invalid") ||
+                        raw.contains("credential_invalid") -> pcStatus.copy(credentialRejected = true)
+                    raw.contains("computer_not_locked") ||
+                        raw.contains("unlock_not_ready") -> pcStatus.copy(
+                        isLocked = false,
+                        credentialProviderConnected = false,
+                        unlockReady = false
+                    )
+                    raw.contains("unknown_device") -> pcStatus.copy(paired = false, revoked = true)
+                    else -> pcStatus
                 }
                 uiError = unlockError(raw)
                 status = uiError?.title ?: "解锁失败"
             } finally {
                 busy = false
                 nfcPhase = NfcPhase.IDLE
+            }
+        }
+    }
+
+    fun refreshReceiptOutcome() {
+        val current = receipt ?: return
+        val requestId = current.requestId ?: return
+        if (busy) {
+            return
+        }
+
+        scope.launch {
+            busy = true
+            receiptNotice = ""
+            try {
+                runWithTransport { client ->
+                    val payload = client.unlockStatus(requestId).getJSONObject("payload")
+                    if (receipt?.requestId != requestId) {
+                        return@runWithTransport
+                    }
+                    when (val state = payload.optString("state", "unknown")) {
+                        "succeeded" -> {
+                            receipt = current.copy(state = state)
+                            status = "Windows 已确认登录成功"
+                            pcStatus = pcStatus.copy(
+                                online = true,
+                                isLocked = false,
+                                credentialProviderConnected = false,
+                                unlockReady = false
+                            )
+                        }
+                        "failed" -> {
+                            val error = payload.optString("error").ifBlank { "logon_failure" }
+                            pcStatus = when (error) {
+                                "credential_invalid" -> pcStatus.copy(credentialRejected = true)
+                                "credential_unreadable" -> pcStatus.copy(credentialSet = false)
+                                "component_not_connected",
+                                "component_disconnected",
+                                "component_error" -> pcStatus.copy(
+                                    credentialProviderConnected = false,
+                                    isLocked = false,
+                                    unlockReady = false
+                                )
+                                else -> pcStatus
+                            }
+                            receipt = null
+                            uiError = unlockError("unlock_failed:$error")
+                            status = uiError?.title ?: "解锁失败"
+                        }
+                        "unknown" -> {
+                            receiptNotice = "电脑已重启或请求记录已过期，请重新发起解锁。"
+                        }
+                        else -> {
+                            receiptNotice = "Windows 尚未返回最终结果，请稍后再次刷新。"
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                receiptNotice = if (e.message.orEmpty().contains("unknown_type")) {
+                    "电脑服务版本过旧，无法查询最终登录结果。"
+                } else {
+                    "暂时无法查询电脑状态，请检查连接后重试。"
+                }
+            } finally {
+                busy = false
             }
         }
     }
@@ -600,7 +864,7 @@ private fun BandKeyScreen(
             pairedAt = 0L
             pairingId = null
             pinInput = ""
-            credentialReady = false
+            pcStatus = PcStatus()
             activeChannel = null
             pendingUnpair = false
             receipt = null
@@ -922,6 +1186,7 @@ private fun BandKeyScreen(
                             mode = mode,
                             activeChannel = activeChannel,
                             paired = paired,
+                            pcStatus = pcStatus,
                             credentialReady = credentialReady,
                             busy = busy,
                             status = status,
@@ -970,6 +1235,7 @@ private fun BandKeyScreen(
                             serverUrl = serverUrl,
                             deviceName = deviceName,
                             deviceId = deviceId,
+                            pcStatus = pcStatus,
                             credentialReady = credentialReady,
                             busy = busy,
                             status = status,
@@ -1067,10 +1333,23 @@ private fun BandKeyScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
                 receipt?.let { value ->
-                    SuccessOverlay(
-                        receipt = value,
-                        onDone = { receipt = null }
-                    )
+                    if (value.state == "succeeded") {
+                        SuccessOverlay(
+                            receipt = value,
+                            onDone = { receipt = null }
+                        )
+                    } else {
+                        SubmittedOverlay(
+                            receipt = value,
+                            busy = busy,
+                            notice = receiptNotice,
+                            onRefresh = { refreshReceiptOutcome() },
+                            onDone = {
+                                receipt = null
+                                receiptNotice = ""
+                            }
+                        )
+                    }
                 }
             }
 
@@ -1116,6 +1395,7 @@ private fun UnlockHome(
     mode: String,
     activeChannel: String?,
     paired: Boolean,
+    pcStatus: PcStatus,
     credentialReady: Boolean,
     busy: Boolean,
     status: String,
@@ -1140,6 +1420,7 @@ private fun UnlockHome(
         NfcUnlockHome(
             deviceName = deviceName,
             paired = paired,
+            pcStatus = pcStatus,
             credentialReady = credentialReady,
             busy = busy,
             status = status,
@@ -1166,6 +1447,7 @@ private fun UnlockHome(
         mode = mode,
         activeChannel = activeChannel,
         paired = paired,
+        pcStatus = pcStatus,
         credentialReady = credentialReady,
         busy = busy,
         status = status,
@@ -1182,6 +1464,7 @@ private fun PhoneUnlockHome(
     mode: String,
     activeChannel: String?,
     paired: Boolean,
+    pcStatus: PcStatus,
     credentialReady: Boolean,
     busy: Boolean,
     status: String,
@@ -1192,32 +1475,51 @@ private fun PhoneUnlockHome(
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val dialSize = minOf(maxWidth * 0.68f, maxHeight * 0.38f, 248.dp)
-        val heading = when {
-            busy -> "正在连接电脑"
-            !paired -> "先配对一台电脑"
-            !credentialReady -> "请检查 Windows 凭据"
-            else -> "电脑已就绪"
-        }
-        val dialTitle = when {
-            busy -> "正在验证"
-            !paired -> "等待配对"
-            !credentialReady -> "凭据待确认"
-            else -> "手机已认证"
-        }
-        val dialLabel = when {
-            busy -> "VERIFYING"
-            !paired -> "STANDBY"
-            credentialReady -> "READY"
-            else -> "ATTENTION"
-        }
         val channelValue = when (activeChannel) {
             "ble" -> "蓝牙 LE"
             "lan" -> "局域网"
             else -> if (mode == "ble") "蓝牙优先" else "局域网"
         }
-        val channelMeta = when (activeChannel) {
-            "ble" -> "安全通道已连接"
-            "lan" -> "TCP 通道已连接"
+
+        val pcHeading = when {
+            busy -> "正在连接电脑"
+            !paired -> "先配对一台电脑"
+            !pcStatus.checked -> "正在确认电脑状态"
+            pcStatus.protocolVersion < 2 -> "电脑服务需要升级"
+            !pcStatus.online -> "电脑离线"
+            pcStatus.revoked -> "设备已被电脑撤销"
+            !pcStatus.paired -> "电脑未确认此设备"
+            pcStatus.credentialRejected -> "Windows 凭据已失效"
+            !pcStatus.credentialSet -> "电脑缺少解锁凭据"
+            !pcStatus.isLocked -> "电脑未锁屏或组件未就绪"
+            else -> "电脑已就绪"
+        }
+        val pcDialTitle = when {
+            busy -> "正在验证"
+            !paired -> "等待配对"
+            !pcStatus.checked -> "正在同步"
+            pcStatus.protocolVersion < 2 -> "需要升级"
+            !pcStatus.online -> "等待电脑"
+            pcStatus.revoked -> "授权已撤销"
+            pcStatus.credentialRejected -> "凭据已失效"
+            !pcStatus.credentialSet -> "凭据待确认"
+            !pcStatus.isLocked -> "未锁屏/组件未就绪"
+            else -> "手机已认证"
+        }
+        val pcDialLabel = when {
+            busy -> "VERIFYING"
+            !paired -> "STANDBY"
+            !pcStatus.checked -> "SYNCING"
+            pcStatus.protocolVersion < 2 -> "UPGRADE"
+            !pcStatus.online -> "OFFLINE"
+            pcStatus.revoked -> "REVOKED"
+            pcStatus.credentialRejected || !pcStatus.credentialSet -> "ATTENTION"
+            !pcStatus.isLocked -> "NOT READY"
+            else -> "READY"
+        }
+        val pcChannelMeta = when {
+            !pcStatus.checked -> "正在同步"
+            pcStatus.online -> "状态已确认"
             else -> "按需建立连接"
         }
 
@@ -1262,7 +1564,7 @@ private fun PhoneUnlockHome(
                 )
                 Spacer(Modifier.height(5.dp))
                 Text(
-                    text = heading,
+                    text = pcHeading,
                     color = Bk.Text,
                     fontSize = 29.sp,
                     lineHeight = 34.sp,
@@ -1287,12 +1589,12 @@ private fun PhoneUnlockHome(
                     contentAlignment = Alignment.Center
                 ) {
                     TrustDial(
-                        channelReady = channelReadyState(mode, activeChannel),
-                        identityReady = paired,
+                        channelReady = pcStatus.online,
+                        identityReady = paired && !pcStatus.revoked,
                         credentialReady = credentialReady,
                         busy = busy,
-                        statusLabel = dialLabel,
-                        title = dialTitle,
+                        statusLabel = pcDialLabel,
+                        title = pcDialTitle,
                         subtitle = if (paired) {
                             "ECDSA P-256 · ANDROID"
                         } else {
@@ -1308,15 +1610,19 @@ private fun PhoneUnlockHome(
                         RailItem(
                             label = "连接通道",
                             value = channelValue,
-                            meta = channelMeta,
+                            meta = pcChannelMeta,
                             tone = if (mode == "ble") Bk.Mint else Bk.Iris,
                             pulsing = busy
                         ),
                         RailItem(
                             label = "设备身份",
-                            value = if (paired) "已认证" else "未配对",
+                            value = when {
+                                pcStatus.revoked -> "已撤销"
+                                paired -> "已认证"
+                                else -> "未配对"
+                            },
                             meta = if (paired) "ECDSA P-256" else "等待设备密钥",
-                            tone = if (paired) Bk.Iris else Bk.Amber
+                            tone = if (pcStatus.revoked) Bk.Coral else if (paired) Bk.Iris else Bk.Amber
                         ),
                         RailItem(
                             label = "Windows 凭据",
@@ -1356,7 +1662,17 @@ private fun PhoneUnlockHome(
                 } else {
                     "安全绑定本机密钥"
                 },
-                enabled = !busy,
+                enabled = !busy && (
+                    !paired || (
+                        (pcStatus.checked && pcStatus.protocolVersion < 2) ||
+                            (
+                                pcStatus.online &&
+                                    pcStatus.paired &&
+                                    pcStatus.credentialSet &&
+                                    !pcStatus.credentialRejected
+                                )
+                        )
+                    ),
                 busy = busy,
                 glyph = if (paired) BkGlyph.LOCK else BkGlyph.KEY,
                 onClick = if (paired) onUnlock else onPair,
@@ -1381,6 +1697,7 @@ private fun PhoneUnlockHome(
 private fun NfcUnlockHome(
     deviceName: String,
     paired: Boolean,
+    pcStatus: PcStatus,
     credentialReady: Boolean,
     busy: Boolean,
     status: String,
@@ -1420,6 +1737,11 @@ private fun NfcUnlockHome(
         failed -> "NFC 读取失败"
         activeKey == null -> "还没有 NFC 钥匙"
         !paired -> "先配对一台电脑"
+        !pcStatus.checked -> "正在确认电脑状态"
+        pcStatus.protocolVersion < 2 -> "电脑服务需要升级"
+        !pcStatus.online -> "电脑离线"
+        pcStatus.revoked -> "设备授权已撤销"
+        !credentialReady -> "请检查 Windows 凭据"
         else -> "贴卡解锁"
     }
     val subtitle = when {
@@ -2069,6 +2391,7 @@ private fun SettingsScreen(
     serverUrl: String,
     deviceName: String,
     deviceId: String,
+    pcStatus: PcStatus,
     credentialReady: Boolean,
     busy: Boolean,
     status: String,
@@ -2085,7 +2408,11 @@ private fun SettingsScreen(
     ) {
         Spacer(Modifier.height(12.dp))
         BrandHeader(
-            statusText = if (mode == "ble") "BLE FIRST" else "LAN MODE",
+            statusText = when {
+                pcStatus.online -> "ONLINE"
+                mode == "ble" -> "BLE FIRST"
+                else -> "LAN MODE"
+            },
             tone = if (mode == "ble") Bk.Mint else Bk.Iris,
             pulsing = false
         )
@@ -2704,6 +3031,129 @@ private fun SuccessOverlay(
 }
 
 @Composable
+private fun SubmittedOverlay(
+    receipt: UnlockReceipt,
+    busy: Boolean,
+    notice: String,
+    onRefresh: () -> Unit,
+    onDone: () -> Unit
+) {
+    BkBackground {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+        ) {
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "SUBMITTED / 06",
+                    color = Bk.Amber,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.8.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                IconAction(
+                    glyph = BkGlyph.CLOSE,
+                    onClick = onDone,
+                    tint = Bk.Muted
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(Modifier.height(30.dp))
+                GlyphBadge(
+                    glyph = BkGlyph.LINK,
+                    tone = Bk.Amber,
+                    size = 96.dp
+                )
+                Spacer(Modifier.height(22.dp))
+                Text(
+                    text = "已提交解锁请求",
+                    color = Bk.Text,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Windows 尚未返回最终登录结果。电脑可能正在进入桌面，也可能仍在锁屏。",
+                    color = Bk.Muted,
+                    fontSize = 11.sp,
+                    lineHeight = 17.sp,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(24.dp))
+                TechCard(modifier = Modifier.fillMaxWidth()) {
+                    InfoRow(
+                        label = "时间",
+                        value = formatReceiptTime(receipt.at),
+                        mono = true
+                    )
+                    InfoRow(
+                        label = "设备",
+                        value = receipt.target,
+                        mono = true
+                    )
+                    InfoRow(
+                        label = "通道",
+                        value = receipt.channel
+                    )
+                    InfoRow(
+                        label = "请求",
+                        value = receipt.requestId?.toString() ?: "-",
+                        mono = true
+                    )
+                    InfoRow(
+                        label = "状态",
+                        value = "ACCEPTED / SUBMITTED",
+                        valueColor = Bk.Amber,
+                        mono = true
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                StatusNote(
+                    text = "请在电脑上确认是否已进入桌面。若仍停留在锁屏，请检查 Windows 凭据或查看 cp.log。",
+                    tone = Bk.Dim,
+                    glyph = BkGlyph.ALERT
+                )
+                if (notice.isNotBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    StatusNote(
+                        text = notice,
+                        tone = Bk.Amber,
+                        glyph = BkGlyph.REFRESH
+                    )
+                }
+                Spacer(Modifier.height(18.dp))
+            }
+
+            PrimaryAction(
+                text = if (busy) "正在查询…" else "刷新最终状态",
+                secondaryText = "查询 Windows 登录结果",
+                enabled = !busy,
+                busy = busy,
+                glyph = BkGlyph.REFRESH,
+                onClick = onRefresh,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
 private fun ConfirmUnpairOverlay(
     busy: Boolean,
     onCancel: () -> Unit,
@@ -3032,6 +3482,89 @@ private fun pairingError(raw: String): String = when {
 private fun unlockError(raw: String): UiError {
     val code = raw.substringBefore(':').trim().ifBlank { "unknown" }.take(48)
     return when {
+        raw.contains("unknown_device") -> UiError(
+            title = "设备授权已失效",
+            message = "电脑端已删除这台手机，当前私钥不能继续解锁。",
+            steps = listOf(
+                RecoveryStep("重新配对", "在电脑托盘确认设备列表，然后回到手机重新配对。"),
+                RecoveryStep("检查电脑端", "确认没有误删当前设备，或先恢复电脑端服务。"),
+                RecoveryStep("保存新私钥", "重新配对会生成新的设备密钥，旧密钥自动失效。")
+            ),
+            code = code
+        )
+        raw.contains("unlock_failed:credential_invalid") ||
+            raw.contains("unlock_failed:logon_failure") -> UiError(
+            title = "Windows 登录失败",
+            message = "电脑已收到解锁请求，但 Windows 拒绝了保存的凭据。",
+            steps = listOf(
+                RecoveryStep("更新解锁凭据", "在电脑托盘重新保存当前 Windows 账户密码。"),
+                RecoveryStep("确认账号类型", "Microsoft 账号、域账号或仅 PIN 账号可能需要额外配置。"),
+                RecoveryStep("查看 cp.log", "如密码正确仍失败，请检查 C:\\ProgramData\\BandKey\\cp.log。")
+            ),
+            code = code
+        )
+        raw.contains("unlock_failed:credential_unreadable") -> UiError(
+            title = "无法读取解锁凭据",
+            message = "Windows 登录组件无法解密本机保存的凭据，通常与权限或系统账户变更有关。",
+            steps = listOf(
+                RecoveryStep("重新保存凭据", "在电脑托盘重新输入当前 Windows 账户密码。"),
+                RecoveryStep("检查目录权限", "确认 C:\\ProgramData\\BandKey 仅允许 SYSTEM 与管理员访问。"),
+                RecoveryStep("重启后重试", "如凭据文件损坏，重启电脑后重新保存并再次解锁。")
+            ),
+            code = code
+        )
+        raw.contains("unlock_failed:component_error") ||
+            raw.contains("unlock_failed:component_not_connected") ||
+            raw.contains("unlock_failed:component_disconnected") -> UiError(
+            title = "解锁组件中断",
+            message = "凭据提供程序在提交登录前断开，Windows 没有完成登录。",
+            steps = listOf(
+                RecoveryStep("重新锁定电脑", "按 Win + L 让登录界面重新加载解锁组件。"),
+                RecoveryStep("重启服务", "在电脑托盘或服务管理器中重启 BandKeyService。"),
+                RecoveryStep("重新尝试", "回到手机后再次发起解锁请求。")
+            ),
+            code = code
+        )
+        raw.contains("unlock_failed:outcome_timeout") -> UiError(
+            title = "等待解锁结果超时",
+            message = "电脑已收到请求，但 Windows 在限制时间内没有返回最终登录结果。",
+            steps = listOf(
+                RecoveryStep("确认电脑状态", "查看电脑是否已经进入桌面；如果仍停留在锁屏，请重新发起解锁。"),
+                RecoveryStep("重新锁定电脑", "按 Win + L 让登录组件重新加载，再重试一次。"),
+                RecoveryStep("检查电脑端", "查看 C:\\ProgramData\\BandKey\\cp.log 是否有对应的 UNLOCK_RESULT 记录。")
+            ),
+            code = code
+        )
+        raw.contains("bad_signature") -> UiError(
+            title = "签名校验失败",
+            message = "电脑无法验证这台手机的签名，设备密钥可能已损坏。",
+            steps = listOf(
+                RecoveryStep("重新配对", "删除本机配对记录后重新生成设备密钥。"),
+                RecoveryStep("检查系统时间", "确认手机和电脑时间相差不超过 2 分钟。"),
+                RecoveryStep("重试", "重新配对完成后再发起解锁。")
+            ),
+            code = code
+        )
+        raw.contains("timestamp_out_of_range") -> UiError(
+            title = "设备时间不同步",
+            message = "手机与电脑时间相差超过允许范围，请求被拒绝。",
+            steps = listOf(
+                RecoveryStep("开启自动时间", "在手机和电脑上开启自动设置日期与时间。"),
+                RecoveryStep("重新同步", "等待系统完成时间同步后再试。"),
+                RecoveryStep("重新解锁", "返回主页重新发起请求。")
+            ),
+            code = code
+        )
+        raw.contains("replayed_nonce") -> UiError(
+            title = "请求已被使用",
+            message = "这次解锁请求已经提交过，电脑拒绝了重复请求。",
+            steps = listOf(
+                RecoveryStep("重新发起", "返回主页后再次点击解锁，手机会生成新的随机数。"),
+                RecoveryStep("不要重复点击", "等待电脑返回最终结果后再操作。"),
+                RecoveryStep("检查网络", "连接不稳定时请靠近电脑或切换到局域网。")
+            ),
+            code = code
+        )
         raw.contains("computer_not_locked") -> UiError(
             title = "电脑当前未锁定",
             message = "解锁请求只在锁屏状态生效。请先锁定电脑，再回到手机上重试。",
@@ -3090,8 +3623,18 @@ private fun humanMessage(raw: String): String {
     return if (index >= 0) raw.substring(index + 2) else raw
 }
 
-private fun channelReadyState(mode: String, activeChannel: String?): Boolean =
-    activeChannel != null || mode == "ble" || mode == "wifi"
+private fun pcStatusSummary(status: PcStatus): String = when {
+    !status.checked -> "正在确认电脑状态…"
+    status.protocolVersion < 2 -> "电脑服务版本过旧，请在电脑上重新安装 BandKey 1.8.0 或更高版本"
+    !status.online -> "电脑离线，等待重新连接"
+    status.revoked -> "设备已被电脑撤销，请重新配对"
+    !status.paired -> "电脑未确认此设备，请重新配对"
+    status.credentialRejected -> "Windows 密码已失效，请在电脑托盘更新"
+    !status.credentialSet -> "电脑尚未保存 Windows 解锁凭据"
+    !status.isLocked -> "电脑当前未锁屏，或解锁组件尚未连接；解锁请求只在锁屏界面生效"
+    !status.unlockReady -> "解锁组件尚未就绪，请检查电脑端服务"
+    else -> "电脑已就绪，等待手机解锁"
+}
 
 private fun targetLabel(serverUrl: String, mode: String): String {
     val host = hostFromUrl(serverUrl)

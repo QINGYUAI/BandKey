@@ -18,8 +18,10 @@ var credentials = new CredentialStore(dataDir);
 var autoUnlock = new AutoUnlockState(() =>
     store.Devices.Count > 0 && (options.DevMode || credentials.IsUsable));
 var activity = new UnlockActivityState();
+var outcomes = new UnlockOutcomeStore(Path.Combine(dataDir, "outcomes"));
+outcomes.ClearJournal();
 var pipes = new PipeServer(
-    store, pairing, autoUnlock, credentials, activity, options.DevMode, options.PipeSuffix);
+    store, pairing, autoUnlock, credentials, activity, outcomes, options.DevMode, options.PipeSuffix);
 var router = new RouterContext(
     store,
     pairing,
@@ -28,6 +30,7 @@ var router = new RouterContext(
     pipes,
     credentials,
     activity,
+    outcomes,
     options.DevMode);
 pipes.SetRpcHandler(text => MessageRouter.Handle(text, router));
 var lan = new LanListener(router);
@@ -158,6 +161,10 @@ static void MapDevelopmentEndpoints(
             credentialRejected = autoUnlock.CredentialRejected,
             pairedCount = store.Devices.Count,
             credentialProviderConnected = pipes.IsCredentialProviderConnected,
+            pcName = Environment.MachineName,
+            serverVersion = typeof(MessageTypes).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
+            protocolVersion = MessageTypes.ProtocolVersion,
+            isLocked = pipes.IsCredentialProviderConnected,
             lanTcpListening = lan.TcpListening,
             lanUdpListening = lan.UdpListening,
             lanTcpPort = LanListener.TcpPort,

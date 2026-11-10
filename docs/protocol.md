@@ -1,4 +1,4 @@
-# BandKey 通信协议 v1
+# BandKey 通信协议 v2
 
 手机（Android）与 Windows 服务（`BandKeyService`）之间使用同一套 JSON 消息与签名协议，可运行在四种传输通道上：
 
@@ -102,11 +102,19 @@ unlock:<deviceId>:<nonce>:<timestamp>
 ```json
 {
   "type": "unlock_result",
-  "payload": { "ok": true, "error": null, "requestId": 1 }
+  "payload": {
+    "ok": true,
+    "error": null,
+    "requestId": 1,
+    "accepted": true,
+    "completed": false,
+    "state": "accepted"
+  }
 }
 ```
 
-`requestId` 单调递增，用于服务端与凭据提供程序之间的投递确认。
+`requestId` 单调递增。它只表示请求已投递；最终登录结果需继续查询
+`unlock_status`，状态与字段说明见 [protocol-v2-status.md](protocol-v2-status.md)。
 
 ## 托盘状态接口
 
@@ -143,7 +151,9 @@ unlock:<deviceId>:<nonce>:<timestamp>
                  └─ Credential Provider
                       ├─ 读取 DPAPI 凭据
                       ├─ 调用 KerbInteractiveLogon
-                      └─ BandKeyPipe: AUTO_UNLOCK_ACK:<requestId>
+                      ├─ BandKeyPipe: AUTO_UNLOCK_ACK:<requestId>
+                      ├─ BandKeyPipe: AUTO_UNLOCK_SUBMITTED:<requestId>
+                      └─ BandKeyPipe: UNLOCK_RESULT:<requestId>:success|failed
 ```
 
 如果系统拒绝保存的 Windows 密码，CP 回写 `PASSWORD_FAILED`。服务进入 `credentialRejected` 状态，停止后续自动解锁，直到用户在托盘重新保存并验证密码。
@@ -206,7 +216,9 @@ BANDKEY_DISCOVER
 | --- | --- | --- |
 | 服务 → CP | `UNLOCK_READY:true` / `UNLOCK_READY:false` | 凭据与配对状态变化时广播 |
 | 服务 → CP | `AUTO_UNLOCK:<requestId>` | 投递一次自动解锁请求 |
-| CP → 服务 | `AUTO_UNLOCK_ACK:<requestId>` | 确认收到并已尝试投递 |
+| CP → 服务 | `AUTO_UNLOCK_ACK:<requestId>` | 确认收到请求并触发登录界面刷新 |
+| CP → 服务 | `AUTO_UNLOCK_SUBMITTED:<requestId>` | 凭据已完成序列化并提交给 Windows |
+| CP → 服务 | `UNLOCK_RESULT:<requestId>:<result>` | Windows 最终登录结果 |
 | CP → 服务 | `PASSWORD_FAILED` | Windows 拒绝保存的密码 |
 
 ### BandKeyTrayPipe（托盘 ↔ 服务）

@@ -1,6 +1,7 @@
 # BandKey Android 一键构建脚本
 # 用法：powershell -ExecutionPolicy Bypass -File build.ps1 [task]
 # 默认构建 Debug APK；如需 release 传入 assembleRelease
+# assembleRelease 完成后会自动复制到仓库根目录 dist/latest/BandKey.apk。
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 

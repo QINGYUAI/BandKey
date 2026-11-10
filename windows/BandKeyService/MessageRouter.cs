@@ -58,6 +58,36 @@ public static class MessageRouter
                     return Ok(MessageTypes.PairSuccess, new PairSuccessResponse(device.DeviceId, device.Name));
                 }
 
+                case MessageTypes.Status:
+                {
+                    var request = Deserialize<StatusRequest>(payload);
+                    var deviceId = request?.DeviceId?.Trim();
+                    var paired = !string.IsNullOrWhiteSpace(deviceId)
+                                 && context.Store.Devices.Any(device =>
+                                     string.Equals(device.DeviceId, deviceId, StringComparison.Ordinal));
+                    var credentialSet = context.Credentials.IsUsable;
+                    var credentialRejected = context.AutoUnlock.CredentialRejected;
+                    var providerConnected = context.Pipes.IsCredentialProviderConnected;
+                    var ready = paired
+                                && (context.DevMode || credentialSet)
+                                && !credentialRejected
+                                && (context.DevMode || providerConnected);
+
+                    return Ok(MessageTypes.StatusResult, new StatusResponse(
+                        MessageTypes.ProtocolVersion,
+                        ServerVersion(),
+                        Environment.MachineName,
+                        true,
+                        paired,
+                        !string.IsNullOrWhiteSpace(deviceId) && !paired,
+                        credentialSet,
+                        credentialRejected,
+                        providerConnected,
+                        providerConnected,
+                        ready,
+                        DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+                }
+
                 case MessageTypes.Unlock:
                 {
                     var request = Deserialize<UnlockRequest>(payload);
@@ -98,7 +128,41 @@ public static class MessageRouter
                     }
 
                     context.Activity.Record(request);
-                    return Ok(MessageTypes.UnlockResult, new UnlockResultResponse(true, null, requestId));
+                    context.Outcomes.MarkAccepted(requestId);
+                    return Ok(MessageTypes.UnlockResult, new UnlockResultResponse(
+                        true,
+                        null,
+                        requestId,
+                        true,
+                        false,
+                        UnlockOutcomeStore.Accepted));
+                }
+
+                case MessageTypes.UnlockStatus:
+                {
+                    var request = Deserialize<UnlockStatusRequest>(payload);
+                    var status = request is null || request.RequestId <= 0
+                        ? null
+                        : context.Outcomes.Snapshot(request.RequestId);
+
+                    if (status is null)
+                    {
+                        return Ok(MessageTypes.UnlockStatusResult, new UnlockStatusResponse(
+                            request?.RequestId ?? 0,
+                            UnlockOutcomeStore.Unknown,
+                            false,
+                            "unknown_request",
+                            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                            false));
+                    }
+
+                    return Ok(MessageTypes.UnlockStatusResult, new UnlockStatusResponse(
+                        status.RequestId,
+                        status.State,
+                        status.Success,
+                        status.Error,
+                        status.UpdatedAt,
+                        status.Completed));
                 }
 
                 default:
@@ -131,6 +195,12 @@ public static class MessageRouter
 
     private static string Error(string code, string message)
         => JsonSerializer.Serialize(new Response(MessageTypes.Error, new { code, message }), JsonOpts);
+
+    private static string ServerVersion()
+    {
+        var version = typeof(MessageRouter).Assembly.GetName().Version;
+        return version is null ? "0.0.0" : $"{version.Major}.{version.Minor}.{version.Build}";
+    }
 }
 
 public sealed record RouterContext(
@@ -141,4 +211,5 @@ public sealed record RouterContext(
     PipeServer Pipes,
     CredentialStore Credentials,
     UnlockActivityState Activity,
+    UnlockOutcomeStore Outcomes,
     bool DevMode);

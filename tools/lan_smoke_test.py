@@ -62,6 +62,17 @@ def main():
         print("pair_success:", success)
         device_id = success["payload"]["deviceId"]
 
+        send_line(stream, {
+            "type": "status",
+            "payload": {"deviceId": device_id},
+        })
+        status = read_line(stream)
+        print("status_result:", status)
+        if status.get("payload", {}).get("protocolVersion", 0) < 2:
+            raise SystemExit(1)
+        if not status.get("payload", {}).get("paired"):
+            raise SystemExit(1)
+
         nonce = uuid.uuid4().hex
         timestamp = int(time.time())
         data = f"unlock:{device_id}:{nonce}:{timestamp}".encode("utf-8")
@@ -76,7 +87,7 @@ def main():
         })
         result = read_line(stream)
         print("unlock_result:", result)
-        if not result.get("payload", {}).get("ok"):
+        if not result.get("payload", {}).get("accepted"):
             raise SystemExit(1)
     finally:
         stream.close()

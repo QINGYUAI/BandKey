@@ -1,17 +1,27 @@
+param(
+    [switch]$DropAfterSubmit,
+    [switch]$DropWithoutResult
+)
+
 $ErrorActionPreference = 'Stop'
+if ($DropAfterSubmit -and $DropWithoutResult) {
+    throw 'DropAfterSubmit and DropWithoutResult cannot be used together'
+}
 
 $root = Split-Path -Parent $PSScriptRoot
 $dotnet = "$env:USERPROFILE\.dotnet\dotnet.exe"
 $dll = Join-Path $root 'windows\BandKeyService\bin\Release\net8.0\BandKeyService.dll'
 $runId = [guid]::NewGuid().ToString('N').Substring(0, 12)
 $pipeSuffix = "-$runId"
-$cfg = Join-Path $env:TEMP "bandkey_pipe_devices_$runId.json"
-$key = Join-Path $env:TEMP "bandkey_pipe_phone_key_$runId.pem"
-$probeOut = Join-Path $env:TEMP "bandkey_pipe_probe_$runId.log"
+$runDir = Join-Path $env:TEMP "bandkey_pipe_$runId"
+$cfg = Join-Path $runDir 'devices.json'
+$key = Join-Path $runDir 'phone_key.pem'
+$probeOut = Join-Path $runDir 'probe.log'
+$outcomeDir = Join-Path $runDir 'outcomes'
 $client = Join-Path $root 'tools\simulate_phone.py'
 $port = 23236
 
-Remove-Item $cfg, $key, $probeOut -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 
 $serviceJob = Start-Job -ScriptBlock {
     param($d, $serviceDll, $config, $listenPort, $suffix)
@@ -33,7 +43,7 @@ try {
     if (-not $ready) { throw 'service did not start in time' }
 
     $probeJob = Start-Job -ScriptBlock {
-        param($out, $seconds, $pipeName)
+        param($out, $seconds, $pipeName, $dropAfterSubmit, $dropWithoutResult, $journalDir)
         $pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', $pipeName, [System.IO.Pipes.PipeDirection]::InOut, [System.IO.Pipes.PipeOptions]::Asynchronous)
         $pipe.Connect(10000)
         $utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -42,6 +52,7 @@ try {
         $writer.AutoFlush = $true
         $watch = [System.Diagnostics.Stopwatch]::StartNew()
         $task = $reader.ReadLineAsync()
+        $journalId = $null
         while ($watch.Elapsed.TotalSeconds -lt $seconds) {
             if (-not $task.Wait(100)) { continue }
             $line = $task.Result
@@ -50,11 +61,29 @@ try {
             if ($line -like 'AUTO_UNLOCK:*') {
                 $id = $line.Substring('AUTO_UNLOCK:'.Length)
                 $writer.WriteLine("AUTO_UNLOCK_ACK:$id")
+                $writer.WriteLine("AUTO_UNLOCK_SUBMITTED:$id")
+                if ($dropAfterSubmit) {
+                    $journalId = $id
+                    break
+                }
+                if ($dropWithoutResult) {
+                    break
+                }
+                $writer.WriteLine("UNLOCK_RESULT:${id}:success")
             }
             $task = $reader.ReadLineAsync()
         }
         $pipe.Dispose()
-    } -ArgumentList $probeOut, 30, "BandKeyPipe$pipeSuffix"
+
+        if ($journalId) {
+            Start-Sleep -Milliseconds 300
+            New-Item -ItemType Directory -Force -Path $journalDir | Out-Null
+            $finalPath = Join-Path $journalDir "$journalId.result"
+            $tempPath = "$finalPath.tmp"
+            [IO.File]::WriteAllText($tempPath, 'success', [Text.UTF8Encoding]::new($false))
+            Move-Item -LiteralPath $tempPath -Destination $finalPath -Force
+        }
+    } -ArgumentList $probeOut, 30, "BandKeyPipe$pipeSuffix", $DropAfterSubmit.IsPresent, $DropWithoutResult.IsPresent, $outcomeDir
 
     $deadline = (Get-Date).AddSeconds(10)
     while ((Get-Date) -lt $deadline) {
@@ -64,7 +93,10 @@ try {
         Start-Sleep -Milliseconds 200
     }
 
-    python $client --url "ws://127.0.0.1:$port/bandkey" --keyfile $key --pin 123456
+    $expectedState = if ($DropWithoutResult) { 'failed' } else { 'succeeded' }
+    $statusTimeout = if ($DropWithoutResult) { 12 } else { 5 }
+    python $client --url "ws://127.0.0.1:$port/bandkey" --keyfile $key --pin 123456 `
+        --expect-state $expectedState --status-timeout $statusTimeout
     Start-Sleep -Seconds 2
 }
 finally {
@@ -81,3 +113,5 @@ Write-Output '===== PIPE PROBE ====='
 if (Test-Path $probeOut) { Get-Content $probeOut }
 Write-Output '===== SERVICE OUTPUT ====='
 $serviceOutput
+
+Remove-Item -LiteralPath $runDir -Recurse -Force -ErrorAction SilentlyContinue

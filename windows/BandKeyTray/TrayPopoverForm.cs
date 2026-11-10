@@ -114,7 +114,7 @@ internal sealed class TrayPopoverForm : TechForm
         };
         _servicePill.Location = new Point(0, 1);
         _servicePill.SetStatus("正在检查服务", TechPalette.Muted);
-        _version.Text = "v" + (typeof(TrayPopoverForm).Assembly.GetName().Version?.ToString(3) ?? "1.7.0");
+        _version.Text = "v" + (typeof(TrayPopoverForm).Assembly.GetName().Version?.ToString(3) ?? "1.8.0");
         _version.AutoSize = true;
         _version.Font = TechPalette.Mono;
         _version.ForeColor = TechPalette.Dim;

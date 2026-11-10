@@ -26,6 +26,7 @@ public sealed class PipeServer : IAsyncDisposable
     private readonly AutoUnlockState _state;
     private readonly CredentialStore _credentials;
     private readonly UnlockActivityState _activity;
+    private readonly UnlockOutcomeStore _outcomes;
     private readonly bool _devMode;
     private readonly string _cpPipeName;
     private readonly string _trayPipeName;
@@ -46,6 +47,7 @@ public sealed class PipeServer : IAsyncDisposable
         AutoUnlockState state,
         CredentialStore credentials,
         UnlockActivityState activity,
+        UnlockOutcomeStore outcomes,
         bool devMode = false,
         string? pipeSuffix = null)
     {
@@ -54,6 +56,7 @@ public sealed class PipeServer : IAsyncDisposable
         _state = state;
         _credentials = credentials;
         _activity = activity;
+        _outcomes = outcomes;
         _devMode = devMode;
         var suffix = string.IsNullOrWhiteSpace(pipeSuffix) ? "" : pipeSuffix.Trim();
         _cpPipeName = CpPipeName + suffix;
@@ -110,7 +113,9 @@ public sealed class PipeServer : IAsyncDisposable
         }
         else
         {
+            var failedRequestId = requestId.Value;
             _state.CancelPendingAutoUnlock();
+            _outcomes.MarkCompleted(failedRequestId, false, "component_not_connected");
             ServiceLog.Write("[pipe] AUTO_UNLOCK canceled: credential provider not connected");
         }
 
@@ -141,6 +146,7 @@ public sealed class PipeServer : IAsyncDisposable
                 if (pending is not null && !SendToCp($"AUTO_UNLOCK:{pending.Value}"))
                 {
                     _state.CancelPendingAutoUnlock();
+                    _outcomes.FailOutstanding("component_not_connected");
                 }
 
                 using var reader = new StreamReader(pipe, Utf8, detectEncodingFromByteOrderMarks: false,
@@ -187,6 +193,8 @@ public sealed class PipeServer : IAsyncDisposable
                 if (wasCurrent)
                 {
                     _state.CancelPendingAutoUnlock();
+                    _outcomes.MarkDisconnected("component_disconnected");
+
                     ServiceLog.Write("[pipe] credential provider disconnected");
                 }
 
@@ -211,6 +219,32 @@ public sealed class PipeServer : IAsyncDisposable
         {
             var matched = _state.TryAcknowledge(requestId);
             ServiceLog.Write($"[pipe] AUTO_UNLOCK_ACK:{requestId} matched={matched}");
+            return;
+        }
+
+        const string submittedPrefix = "AUTO_UNLOCK_SUBMITTED:";
+        if (line.StartsWith(submittedPrefix, StringComparison.Ordinal)
+            && long.TryParse(line[submittedPrefix.Length..], out var submittedRequestId)
+            && submittedRequestId > 0)
+        {
+            _outcomes.MarkSubmitted(submittedRequestId);
+            ServiceLog.Write($"[pipe] AUTO_UNLOCK_SUBMITTED:{submittedRequestId}");
+            return;
+        }
+
+        const string resultPrefix = "UNLOCK_RESULT:";
+        if (line.StartsWith(resultPrefix, StringComparison.Ordinal))
+        {
+            var parts = line[resultPrefix.Length..].Split(':', 2);
+            if (parts.Length == 2
+                && long.TryParse(parts[0], out var completedRequestId)
+                && completedRequestId > 0)
+            {
+                var result = parts[1].Trim();
+                var success = string.Equals(result, "success", StringComparison.OrdinalIgnoreCase);
+                _outcomes.MarkCompleted(completedRequestId, success, success ? null : result);
+                ServiceLog.Write($"[pipe] UNLOCK_RESULT:{completedRequestId}:{result}");
+            }
         }
     }
 
@@ -237,6 +271,8 @@ public sealed class PipeServer : IAsyncDisposable
 
         connection.Dispose();
         _state.CancelPendingAutoUnlock();
+        _outcomes.MarkDisconnected("component_disconnected");
+
         return false;
     }
 
@@ -540,6 +576,10 @@ public sealed class PipeServer : IAsyncDisposable
             credentialRejected = _state.CredentialRejected,
             pairedCount = _store.Devices.Count,
             credentialProviderConnected = IsCredentialProviderConnected,
+            pcName = Environment.MachineName,
+            serverVersion = typeof(PipeServer).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
+            protocolVersion = MessageTypes.ProtocolVersion,
+            isLocked = IsCredentialProviderConnected,
             lanTcpListening = _lan?.TcpListening ?? false,
             lanUdpListening = _lan?.UdpListening ?? false,
             lanTcpPort = LanListener.TcpPort,

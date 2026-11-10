@@ -1,5 +1,6 @@
 #include "BandKeyCredentialProvider.h"
 
+#include <cstdio>
 #include <cwchar>
 #include <cstring>
 #include <new>
@@ -95,6 +96,93 @@ HRESULT ProtectPassword(const std::wstring& password, std::wstring& protectedPas
 
     protectedPassword.resize(cch);
     return S_OK;
+}
+
+// ReportResult 可能发生在 LogonUI 切换会话、命名管道已经断开之后。
+// 仅通过管道回写会丢失最终结果，因此同时把结果原子写入 ProgramData，
+// 由服务端轮询/查询状态时补收，保证手机端最终状态不会卡在 accepted。
+void WriteOutcomeJournal(long long requestId, const char* result)
+{
+    if (requestId <= 0 || result == nullptr || *result == '\0')
+    {
+        return;
+    }
+
+    wchar_t programData[MAX_PATH] = {};
+    const DWORD length = GetEnvironmentVariableW(L"ProgramData", programData, MAX_PATH);
+    const std::wstring dataDirectory = (length > 0 && length < MAX_PATH)
+        ? std::wstring(programData, length) + L"\\BandKey"
+        : L"C:\\ProgramData\\BandKey";
+    const std::wstring outcomeDirectory = dataDirectory + L"\\outcomes";
+
+    if (!CreateDirectoryW(dataDirectory.c_str(), nullptr)
+        && GetLastError() != ERROR_ALREADY_EXISTS)
+    {
+        CpLog("outcome journal mkdir failed: %lu", GetLastError());
+        return;
+    }
+    if (!CreateDirectoryW(outcomeDirectory.c_str(), nullptr)
+        && GetLastError() != ERROR_ALREADY_EXISTS)
+    {
+        CpLog("outcome journal mkdir failed: %lu", GetLastError());
+        return;
+    }
+
+    wchar_t fileName[64] = {};
+    _snwprintf_s(fileName, _countof(fileName), _TRUNCATE, L"%lld.result", requestId);
+
+    wchar_t tempName[96] = {};
+    _snwprintf_s(
+        tempName,
+        _countof(tempName),
+        _TRUNCATE,
+        L"%lld.%lu.%llu.tmp",
+        requestId,
+        GetCurrentProcessId(),
+        GetTickCount64());
+
+    const std::wstring finalPath = outcomeDirectory + L"\\" + fileName;
+    const std::wstring tempPath = outcomeDirectory + L"\\" + tempName;
+
+    HANDLE file = CreateFileW(
+        tempPath.c_str(),
+        GENERIC_WRITE,
+        0,
+        nullptr,
+        CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        CpLog("outcome journal open failed: %lu", GetLastError());
+        return;
+    }
+
+    const DWORD size = static_cast<DWORD>(strlen(result));
+    DWORD written = 0;
+    bool ok = WriteFile(file, result, size, &written, nullptr) && written == size;
+    if (ok)
+    {
+        ok = FlushFileBuffers(file) != FALSE;
+    }
+    CloseHandle(file);
+
+    if (!ok)
+    {
+        DeleteFileW(tempPath.c_str());
+        CpLog("outcome journal write failed: %lu", GetLastError());
+        return;
+    }
+
+    if (!MoveFileExW(
+            tempPath.c_str(),
+            finalPath.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        const DWORD error = GetLastError();
+        DeleteFileW(tempPath.c_str());
+        CpLog("outcome journal rename failed: %lu", error);
+    }
 }
 }
 
@@ -426,11 +514,18 @@ IFACEMETHODIMP BandKeyCredential::GetSerialization(
 
     authorized_ = false;
     autoUnlockPending_ = false;
+    const long long requestId = autoUnlockRequestId_.load();
 
     if (!provider_.AuthPackageValid())
     {
         // 认证包查询失败时不能提交，否则 LogonUI 只会显示“参数错误”。
         CpLog("GetSerialization failed: auth package lookup failed");
+        if (requestId > 0)
+        {
+            WriteOutcomeJournal(requestId, "component_error");
+            pipe_.SendLine("UNLOCK_RESULT:" + std::to_string(requestId) + ":component_error");
+            autoUnlockRequestId_ = 0;
+        }
         *pcpsiOptionalStatusIcon = CPSI_ERROR;
         if (ppwszOptionalStatusText)
         {
@@ -452,6 +547,11 @@ IFACEMETHODIMP BandKeyCredential::GetSerialization(
 
     if (SUCCEEDED(hr))
     {
+        if (requestId > 0)
+        {
+            pipe_.SendLine("AUTO_UNLOCK_SUBMITTED:" + std::to_string(requestId));
+            CpLog("AUTO_UNLOCK_SUBMITTED:%lld", requestId);
+        }
         *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
         *pcpsiOptionalStatusIcon = CPSI_SUCCESS;
         return S_OK;
@@ -459,6 +559,12 @@ IFACEMETHODIMP BandKeyCredential::GetSerialization(
 
     // 无法读取本地凭据时，主动通知服务端密码/凭据已失效。
     pipe_.SendLine("PASSWORD_FAILED");
+    if (requestId > 0)
+    {
+        WriteOutcomeJournal(requestId, "credential_unreadable");
+        pipe_.SendLine("UNLOCK_RESULT:" + std::to_string(requestId) + ":credential_unreadable");
+        autoUnlockRequestId_ = 0;
+    }
     *pcpsiOptionalStatusIcon = CPSI_ERROR;
     if (ppwszOptionalStatusText)
     {
@@ -477,6 +583,24 @@ IFACEMETHODIMP BandKeyCredential::ReportResult(
         "ReportResult status=0x%08lX substatus=0x%08lX",
         static_cast<unsigned long>(ntsStatus),
         static_cast<unsigned long>(ntsSubstatus));
+
+    const long long requestId = autoUnlockRequestId_.exchange(0);
+    if (requestId > 0)
+    {
+        const char* result = "logon_failure";
+        if (ntsStatus == 0)
+        {
+            result = "success";
+        }
+        else if (ntsStatus == static_cast<NTSTATUS>(0xC000006A))
+        {
+            result = "credential_invalid";
+        }
+
+        WriteOutcomeJournal(requestId, result);
+        pipe_.SendLine("UNLOCK_RESULT:" + std::to_string(requestId) + ":" + result);
+        CpLog("UNLOCK_RESULT:%lld:%s", requestId, result);
+    }
 
     // STATUS_LOGON_FAILURE：账号或密码错误。只有这种结果才说明保存的密码确实失效，
     // 其他错误（组件未就绪、策略限制等）不应该让服务端丢弃已保存的凭据。
@@ -499,6 +623,7 @@ void BandKeyCredential::OnUnlockReady(bool ready)
     {
         authorized_ = false;
         autoUnlockPending_ = false;
+        autoUnlockRequestId_ = 0;
     }
     RefreshFields();
 }

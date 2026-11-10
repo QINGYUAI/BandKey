@@ -6,6 +6,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val bandKeyVersionName = "1.8.1"
+
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
@@ -31,8 +33,8 @@ android {
         applicationId = "com.bandkey.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.7.0"
+        versionCode = 7
+        versionName = bandKeyVersionName
     }
 
     buildTypes {
@@ -67,4 +69,32 @@ dependencies {
     implementation("androidx.compose.animation:animation:1.6.7")
     implementation("androidx.compose.material3:material3:1.2.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
+}
+
+val distVersionDir = rootProject.file("../dist/$bandKeyVersionName")
+val distLatestDir = rootProject.file("../dist/latest")
+
+tasks.register("copyReleaseApkToDist") {
+    doLast {
+        val source = layout.buildDirectory
+            .file("outputs/apk/release/app-release.apk")
+            .get()
+            .asFile
+        if (!source.exists()) {
+            error("Release APK not found: ${source.absolutePath}")
+        }
+
+        distVersionDir.mkdirs()
+        distLatestDir.mkdirs()
+        val versioned = File(distVersionDir, "BandKey-$bandKeyVersionName-android.apk")
+        val latest = File(distLatestDir, "BandKey.apk")
+        source.copyTo(versioned, overwrite = true)
+        source.copyTo(latest, overwrite = true)
+        println("Android APK: ${versioned.absolutePath}")
+        println("Android APK latest: ${latest.absolutePath}")
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    finalizedBy("copyReleaseApkToDist")
 }

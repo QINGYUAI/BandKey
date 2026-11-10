@@ -4,14 +4,20 @@
 ;   dotnet publish windows\BandKeyTray     -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
 ; 并用 CMake 编译 BandKeyCredentialProvider.dll
 
+#define AppVersion "1.8.1"
+
 [Setup]
 AppName=电脑钥匙
-AppVersion=1.7.0
+; 1.7.0 安装器未显式设置 AppId，Inno Setup 默认使用 AppName 作为标识。
+; 这里保留相同值，确保 1.8.x 能识别并覆盖升级旧版本。
+AppId=电脑钥匙
+AppVersion={#AppVersion}
 AppPublisher=科技包
 DefaultDirName={autopf}\BandKey
 DefaultGroupName=电脑钥匙
 DisableProgramGroupPage=yes
-OutputBaseFilename=BandKey-1.7.0-windows-x64
+OutputDir=..\dist\{#AppVersion}
+OutputBaseFilename=BandKey-{#AppVersion}-windows-x64
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64os
@@ -28,6 +34,7 @@ Source: "..\windows\BandKeyCredentialProvider\build\Release\BandKeyCredentialPro
 
 [Dirs]
 Name: "{commonappdata}\BandKey"
+Name: "{commonappdata}\BandKey\outcomes"
 
 [Registry]
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueName: "BandKeyTray"; ValueType: String; ValueData: """{app}\BandKeyTray.exe"""; Flags: uninsdeletevalue
@@ -40,7 +47,9 @@ Root: HKCR; Subkey: "CLSID\{{E86A4C6E-5B8A-4C2D-9F3A-1B2C3D4E5F60}\InprocServer3
 
 [Run]
 Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\BandKey"" /inheritance:r /grant:r ""*S-1-5-18:(OI)(CI)F"" ""*S-1-5-32-544:(OI)(CI)F"" /C"
-Filename: "{sys}\sc.exe"; Parameters: "create BandKeyService binPath= ""{app}\BandKeyService.exe"" start= auto DisplayName= ""电脑钥匙服务"""; Flags: runhidden
+Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\BandKey\outcomes"" /inheritance:r /grant:r ""*S-1-5-18:(OI)(CI)F"" ""*S-1-5-32-544:(OI)(CI)F"" /C"
+Filename: "{sys}\sc.exe"; Parameters: "create BandKeyService binPath= ""{app}\BandKeyService.exe"" start= auto DisplayName= ""电脑钥匙服务"""; Flags: runhidden; Check: not ServiceExists
+Filename: "{sys}\sc.exe"; Parameters: "config BandKeyService binPath= ""{app}\BandKeyService.exe"" start= auto DisplayName= ""电脑钥匙服务"""; Flags: runhidden; Check: ServiceExists
 Filename: "{sys}\sc.exe"; Parameters: "failure BandKeyService reset= 86400 actions= restart/5000/restart/15000/restart/60000"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "start BandKeyService"; Flags: runhidden
 Filename: "{app}\BandKeyTray.exe"; Description: "启动电脑钥匙托盘"; Flags: postinstall nowait skipifsilent runasoriginaluser
@@ -57,6 +66,13 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 Type: filesandordirs; Name: "{commonappdata}\BandKey"
 
 [Code]
+function ServiceExists(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec(ExpandConstant('{sys}\sc.exe'), 'query BandKeyService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
 procedure ConfigureFirewall;
 var
   ResultCode: Integer;
@@ -83,7 +99,7 @@ var
   ResultCode: Integer;
 begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM BandKeyTray.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec(ExpandConstant('{sys}\sc.exe'), 'stop BandKeyService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(2500);
+  Exec(ExpandConstant('{sys}\net.exe'), 'stop BandKeyService /y', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(500);
   Result := '';
 end;

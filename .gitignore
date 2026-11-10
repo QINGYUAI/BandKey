@@ -24,6 +24,7 @@ local.properties
 .env.*
 
 # Installers and package outputs
+dist/
 *.apk
 *.aab
 *.msi

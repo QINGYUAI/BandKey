@@ -31,7 +31,8 @@ enum BandKeyFieldId
 void CpLog(const char* format, ...);
 
 // 命名管道客户端：连接 BandKeyService 的 \\.\pipe\BandKeyPipe。
-// 接收 UNLOCK_READY / AUTO_UNLOCK，并回写 AUTO_UNLOCK_ACK / PASSWORD_FAILED。
+// 接收 UNLOCK_READY / AUTO_UNLOCK，并回写 AUTO_UNLOCK_ACK、
+// AUTO_UNLOCK_SUBMITTED、UNLOCK_RESULT / PASSWORD_FAILED。
 class PipeClient
 {
 public:

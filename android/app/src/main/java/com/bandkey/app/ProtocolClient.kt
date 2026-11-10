@@ -114,6 +114,22 @@ class ProtocolClient(private val transport: Transport) : Closeable {
         return success.getJSONObject("payload").getString("deviceId")
     }
 
+    suspend fun serverStatus(deviceId: String?): JSONObject {
+        val payload = JSONObject()
+        if (!deviceId.isNullOrBlank()) {
+            payload.put("deviceId", deviceId)
+        }
+        return request("status_result", "status", payload)
+    }
+
+    suspend fun unlockStatus(requestId: Long): JSONObject {
+        return request(
+            "unlock_status_result",
+            "unlock_status",
+            JSONObject().put("requestId", requestId)
+        )
+    }
+
     suspend fun unlock(
         keyPair: KeyPair,
         deviceId: String,

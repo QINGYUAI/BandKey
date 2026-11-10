@@ -62,6 +62,17 @@ async def main() -> None:
     ap.add_argument("--pin", default=None, help="配对 PIN（显示在 PC 端，由用户输入）")
     ap.add_argument("--replay", action="store_true", help="重复发送同一 nonce，验证防重放")
     ap.add_argument("--nfc", action="store_true", help="模拟手机本地 NFC 验签后的解锁请求")
+    ap.add_argument(
+        "--expect-state",
+        choices=("accepted", "submitted", "succeeded", "failed"),
+        help="断言最终解锁状态，用于 CP 管道回归",
+    )
+    ap.add_argument(
+        "--status-timeout",
+        type=float,
+        default=3.0,
+        help="等待 unlock_status 最终状态的秒数",
+    )
     args = ap.parse_args()
 
     key = load_or_create_key(args.keyfile)
@@ -88,6 +99,17 @@ async def main() -> None:
         assert success["type"] == "pair_success"
         device_id = success["payload"]["deviceId"]
 
+        await ws.send(json.dumps({
+            "type": "status",
+            "payload": {"deviceId": device_id},
+        }))
+        status = json.loads(await ws.recv())
+        print("status_result:", json.dumps(status, ensure_ascii=False))
+        assert status["type"] == "status_result"
+        assert status["payload"]["protocolVersion"] >= 2
+        assert status["payload"]["paired"] is True
+        assert status["payload"]["online"] is True
+
         nonce = uuid.uuid4().hex
         timestamp = int(time.time())
         data = f"unlock:{device_id}:{nonce}:{timestamp}".encode()
@@ -109,8 +131,32 @@ async def main() -> None:
         }))
         result = json.loads(await ws.recv())
         print("unlock_result:", json.dumps(result, ensure_ascii=False))
+        accepted = result.get("type") == "unlock_result" and result.get("payload", {}).get("accepted")
+        final_state = None
+        if accepted:
+            request_id = result["payload"]["requestId"]
+            assert request_id > 0
 
-        if args.replay:
+            deadline = time.time() + args.status_timeout
+            while True:
+                await ws.send(json.dumps({
+                    "type": "unlock_status",
+                    "payload": {"requestId": request_id},
+                }))
+                unlock_status = json.loads(await ws.recv())
+                state = unlock_status.get("payload", {}).get("state")
+                final_state = state
+                if state in ("succeeded", "failed") or time.time() >= deadline:
+                    break
+                time.sleep(0.1)
+            print("unlock_status:", json.dumps(unlock_status, ensure_ascii=False))
+            assert unlock_status["type"] == "unlock_status_result"
+            assert unlock_status["payload"]["state"] in ("accepted", "submitted", "succeeded", "failed")
+
+        if args.expect_state and final_state != args.expect_state:
+            raise SystemExit(f"unexpected unlock state: {final_state}, expected {args.expect_state}")
+
+        if args.replay and accepted:
             await ws.send(json.dumps({
                 "type": "unlock",
                 "payload": payload,
