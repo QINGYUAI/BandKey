@@ -69,6 +69,15 @@ v1.8.1 修复“电脑已实际解锁，手机端仍显示失败”的会话切�
   宽限期内到达的成功结果仍会正常收敛为 `succeeded`。
 - 新增管道回归：正常回执、断开后结果文件补交、断开后无结果超时失败。
 
+## v1.8.2 NFC Reader Mode 修复
+
+v1.8.2 修复 Android 端所有 NFC 卡都被误判为“不支持 NDEF”的问题：
+
+- Reader Mode 之前设置了 `FLAG_READER_SKIP_NDEF_CHECK`，Android 会因此不枚举
+  `Ndef` / `NdefFormatable` 技术，`Ndef.get()` 和 `NdefFormatable.get()` 始终为空。
+- 现已移除该标志，保留 NFC A/B/F/V 轮询，NDEF 卡可以正常读取、格式化和写入。
+- 对真正不支持 NDEF 的卡，错误提示会显示检测到的技术类型，便于判断是否用错了卡。
+
 ## 快速开始（Windows）
 
 ```powershell
@@ -279,7 +288,7 @@ regsvr32 build\Release\BandKeyCredentialProvider.dll
 
 升级注意事项：
 
-- 1.8.1 安装器保留与 1.7.0 相同的 Inno `AppId`，可直接覆盖升级，不会生成两套卸载记录。
+- 1.8.x 安装器保留与 1.7.0 相同的 Inno `AppId`，可直接覆盖升级，不会生成两套卸载记录。
 - 安装器会停止旧服务，并用 `sc config` 更新已有 `BandKeyService` 的路径，避免只执行 `sc create` 导致服务仍指向旧目录。
 - 凭据提供程序 DLL 可能仍被 LogonUI 加载。安装完成后请**重启电脑或注销再登录**，确保新版 CP 生效。
 - 重启前手机端可能仍看到旧 CP 行为或“电脑服务版本过旧”，这是升级过程中的正常现象。
@@ -329,9 +338,9 @@ Release 默认启用 R8 混淆与资源收缩。依赖下载需要代理时，�
 
 ```text
 dist/
-├── 1.8.1/
-│   ├── BandKey-1.8.1-windows-x64.exe
-│   ├── BandKey-1.8.1-android.apk
+├── 1.8.2/
+│   ├── BandKey-1.8.2-windows-x64.exe
+│   ├── BandKey-1.8.2-android.apk
 │   └── SHA256SUMS.txt
 └── latest/
     ├── BandKey-Setup.exe

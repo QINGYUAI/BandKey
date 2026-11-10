@@ -202,11 +202,12 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             adapter.enableReaderMode(
                 this,
                 this,
+                // BandKey 使用 NDEF。不能设置 FLAG_READER_SKIP_NDEF_CHECK，
+                // 否则系统不会枚举 Ndef / NdefFormatable，所有卡都会被误判为不支持 NDEF。
                 NfcAdapter.FLAG_READER_NFC_A or
                     NfcAdapter.FLAG_READER_NFC_B or
                     NfcAdapter.FLAG_READER_NFC_F or
-                    NfcAdapter.FLAG_READER_NFC_V or
-                    NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK,
+                    NfcAdapter.FLAG_READER_NFC_V,
                 null
             )
             true
@@ -933,9 +934,11 @@ private fun BandKeyScreen(
                 nfcNotice = "这张卡是只读卡，无法写入；请更换可写 NFC 卡"
                 return
             }
-            NfcCard.WriteResult.Unsupported -> {
+            is NfcCard.WriteResult.Unsupported -> {
                 nfcPhase = NfcPhase.ERROR
-                nfcNotice = "这张卡不支持 NDEF 写入；请使用 NTAG21x 等 NDEF 卡"
+                val detected = result.technologies.joinToString(" / ").ifBlank { "未知技术" }
+                nfcNotice =
+                    "这张卡不支持 NDEF（检测到 $detected）；请使用 NTAG213/215/216 等 NDEF 卡"
                 return
             }
             is NfcCard.WriteResult.TooLarge -> {

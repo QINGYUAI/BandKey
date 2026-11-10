@@ -14,7 +14,7 @@ object NfcCard {
     sealed class WriteResult {
         data object Success : WriteResult()
         data object NotWritable : WriteResult()
-        data object Unsupported : WriteResult()
+        data class Unsupported(val technologies: List<String>) : WriteResult()
         data class TooLarge(val required: Int, val capacity: Int) : WriteResult()
         data class HasForeignData(val recordCount: Int) : WriteResult()
         data class Failed(val reason: String) : WriteResult()
@@ -68,7 +68,9 @@ object NfcCard {
                 WriteResult.Failed(e.message ?: "卡片格式化失败")
             }
         }
-        return WriteResult.Unsupported
+        return WriteResult.Unsupported(
+            tag.techList.map { it.substringAfterLast('.') }
+        )
     }
 
     fun readPayload(tag: Tag): String? {

@@ -4,7 +4,7 @@
 ;   dotnet publish windows\BandKeyTray     -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
 ; 并用 CMake 编译 BandKeyCredentialProvider.dll
 
-#define AppVersion "1.8.1"
+#define AppVersion "1.8.2"
 
 [Setup]
 AppName=电脑钥匙
