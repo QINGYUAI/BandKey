@@ -984,6 +984,8 @@ private fun BandKeyScreen(
         val payload = withContext(Dispatchers.IO) {
             runCatching { NfcCard.readPayload(tag) }.getOrNull()
         }
+        // 读取完成后才关闭 Reader Mode；绑定流程则要一直保持到写入结束。
+        onStopNfcReader()
         if (payload == null) {
             nfcPhase = NfcPhase.ERROR
             nfcNotice = "没有读取到 NDEF 数据，请重新贴卡"
@@ -1021,7 +1023,6 @@ private fun BandKeyScreen(
         val purpose = nfcScanPurpose ?: return
         nfcScanPurpose = null
         nfcLastPurpose = purpose
-        onStopNfcReader()
         scope.launch {
             nfcPhase = if (purpose == NfcScanPurpose.BIND) NfcPhase.BINDING else NfcPhase.VERIFYING
             try {
@@ -1036,6 +1037,9 @@ private fun BandKeyScreen(
                 } else {
                     "NFC 读取失败：${e.message ?: "请重新贴卡"}"
                 }
+            } finally {
+                // 写卡/读卡期间必须保持 Reader Mode 和 RF 场，完成后才释放。
+                onStopNfcReader()
             }
         }
     }

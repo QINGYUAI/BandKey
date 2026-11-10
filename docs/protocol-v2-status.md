@@ -20,7 +20,7 @@
   "type": "status_result",
   "payload": {
     "protocolVersion": 2,
-    "serverVersion": "1.8.2",
+    "serverVersion": "1.8.3",
     "pcName": "DESKTOP-ABC",
     "online": true,
     "paired": true,

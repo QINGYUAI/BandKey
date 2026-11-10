@@ -3,8 +3,10 @@ package com.bandkey.app
 import android.nfc.NdefMessage
 import android.nfc.NdefRecord
 import android.nfc.Tag
+import android.nfc.TagLostException
 import android.nfc.tech.Ndef
 import android.nfc.tech.NdefFormatable
+import java.io.IOException
 import java.nio.charset.Charset
 
 object NfcCard {
@@ -50,7 +52,7 @@ object NfcCard {
                     ndef.close()
                 }
             } catch (e: Exception) {
-                WriteResult.Failed(e.message ?: "与卡片通信失败")
+                WriteResult.Failed(describeFailure(e))
             }
         }
 
@@ -65,7 +67,7 @@ object NfcCard {
                     formatable.close()
                 }
             } catch (e: Exception) {
-                WriteResult.Failed(e.message ?: "卡片格式化失败")
+                WriteResult.Failed(describeFailure(e))
             }
         }
         return WriteResult.Unsupported(
@@ -94,4 +96,11 @@ object NfcCard {
 
     private fun isIgnorableRecord(record: NdefRecord): Boolean =
         isBandKeyRecord(record) || record.tnf == NdefRecord.TNF_EMPTY
+
+    private fun describeFailure(error: Exception): String = when (error) {
+        is TagLostException -> "卡片离开感应区或连接中断"
+        is IOException -> error.message?.takeIf { it.isNotBlank() } ?: "卡片通信失败（IOException）"
+        is SecurityException -> "卡片已加密或锁定"
+        else -> error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
+    }
 }

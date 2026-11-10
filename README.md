@@ -78,6 +78,16 @@ v1.8.2 修复 Android 端所有 NFC 卡都被误判为“不支持 NDEF”的问
 - 现已移除该标志，保留 NFC A/B/F/V 轮询，NDEF 卡可以正常读取、格式化和写入。
 - 对真正不支持 NDEF 的卡，错误提示会显示检测到的技术类型，便于判断是否用错了卡。
 
+## v1.8.3 NFC 写卡时序修复
+
+v1.8.3 修复“NDEF 卡可识别，但写卡时报与卡片通信失败”的问题：
+
+- 之前收到 NFC 卡后会立即关闭 Reader Mode，RF 场随之中断，后续 `Ndef.connect()` /
+  `writeNdefMessage()` 容易抛出 `TagLostException`。
+- 现在绑定流程会保持 Reader Mode，直到读取、格式化和写入全部完成后再关闭。
+- 读卡解锁在读取到令牌后立即关闭 Reader Mode，再进入后续网络解锁流程。
+- 写卡异常会区分“卡片离开感应区”“卡片加密/锁定”和普通 IO 错误，便于定位。
+
 ## 快速开始（Windows）
 
 ```powershell
@@ -338,9 +348,9 @@ Release 默认启用 R8 混淆与资源收缩。依赖下载需要代理时，�
 
 ```text
 dist/
-├── 1.8.2/
-│   ├── BandKey-1.8.2-windows-x64.exe
-│   ├── BandKey-1.8.2-android.apk
+├── 1.8.3/
+│   ├── BandKey-1.8.3-windows-x64.exe
+│   ├── BandKey-1.8.3-android.apk
 │   └── SHA256SUMS.txt
 └── latest/
     ├── BandKey-Setup.exe
