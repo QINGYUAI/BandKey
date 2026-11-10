@@ -22,14 +22,16 @@ internal sealed class TrayPopoverForm : TechForm
     private readonly Label _heroTitle = new();
     private readonly Label _heroDescription = new();
     private readonly TechMiniRing _trustRing = new();
+    private readonly TechNfcStrip _nfcStrip = new();
     private readonly TechMetric _bleMetric = new();
     private readonly TechMetric _pairedMetric = new();
     private readonly TechMetric _credentialMetric = new();
     private readonly TechActionButton _pairingAction = new();
+    private readonly TechActionButton _nfcAction = new();
     private readonly TechActionButton _devicesAction = new();
     private readonly TechActionButton _credentialAction = new();
     private readonly TechActionButton _refreshAction = new();
-    private readonly TechActionButton _logAction = new();
+    private readonly Label _channelLabel = new();
 
     private PairingInfo? _pairing;
     private bool _refreshing;
@@ -42,7 +44,7 @@ internal sealed class TrayPopoverForm : TechForm
         Action showCredential,
         Action restartBle,
         Action openLog)
-        : base("控制中心", new Size(560, 712))
+        : base("控制中心", new Size(560, 780))
     {
         _api = api;
         _bleState = bleState;
@@ -83,7 +85,7 @@ internal sealed class TrayPopoverForm : TechForm
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 13,
+            RowCount = 15,
             BackColor = TechPalette.Background,
             Margin = new Padding(0)
         };
@@ -95,7 +97,9 @@ internal sealed class TrayPopoverForm : TechForm
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 8));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 14));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 14));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 8));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 180));
@@ -110,7 +114,7 @@ internal sealed class TrayPopoverForm : TechForm
         };
         _servicePill.Location = new Point(0, 1);
         _servicePill.SetStatus("正在检查服务", TechPalette.Muted);
-        _version.Text = "v" + (typeof(TrayPopoverForm).Assembly.GetName().Version?.ToString(3) ?? "1.6.0");
+        _version.Text = "v" + (typeof(TrayPopoverForm).Assembly.GetName().Version?.ToString(3) ?? "1.7.0");
         _version.AutoSize = true;
         _version.Font = TechPalette.Mono;
         _version.ForeColor = TechPalette.Dim;
@@ -181,22 +185,19 @@ internal sealed class TrayPopoverForm : TechForm
         _heroDescription.TextAlign = ContentAlignment.TopLeft;
         _heroDescription.Margin = new Padding(0, 3, 16, 0);
 
-        var mode = new Label
-        {
-            Text = "LOCAL CHANNEL · ECDSA P-256",
-            AutoSize = false,
-            Dock = DockStyle.Fill,
-            Font = TechPalette.Caption,
-            ForeColor = TechPalette.Dim,
-            BackColor = Color.Transparent,
-            TextAlign = ContentAlignment.BottomLeft,
-            Margin = new Padding(0)
-        };
+        _channelLabel.Text = "LOCAL CHANNEL · ECDSA P-256";
+        _channelLabel.AutoSize = false;
+        _channelLabel.Dock = DockStyle.Fill;
+        _channelLabel.Font = TechPalette.Caption;
+        _channelLabel.ForeColor = TechPalette.Dim;
+        _channelLabel.BackColor = Color.Transparent;
+        _channelLabel.TextAlign = ContentAlignment.BottomLeft;
+        _channelLabel.Margin = new Padding(0);
 
         heroCopy.Controls.Add(_heroKicker, 0, 0);
         heroCopy.Controls.Add(_heroTitle, 0, 1);
         heroCopy.Controls.Add(_heroDescription, 0, 2);
-        heroCopy.Controls.Add(mode, 0, 3);
+        heroCopy.Controls.Add(_channelLabel, 0, 3);
 
         _trustRing.Dock = DockStyle.Fill;
         _trustRing.Margin = new Padding(8, 4, 0, 4);
@@ -232,6 +233,9 @@ internal sealed class TrayPopoverForm : TechForm
         metrics.Controls.Add(_pairedMetric, 1, 0);
         metrics.Controls.Add(_credentialMetric, 2, 0);
 
+        _nfcStrip.Dock = DockStyle.Fill;
+        _nfcStrip.Margin = new Padding(0);
+
         var actions = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -252,31 +256,31 @@ internal sealed class TrayPopoverForm : TechForm
         _pairingAction.Margin = new Padding(0, 0, 0, 6);
         actions.SetColumnSpan(_pairingAction, 2);
 
+        ConfigureAction(_nfcAction, "NFC 钥匙", TechActionGlyph.Nfc, false);
+        _nfcAction.SubText = "由手机管理";
+        _nfcAction.Dock = DockStyle.Fill;
+        _nfcAction.Margin = new Padding(0, 0, 5, 6);
+
         ConfigureAction(_devicesAction, "已配对设备", TechActionGlyph.Devices, false);
         _devicesAction.SubText = "设备管理";
         _devicesAction.Dock = DockStyle.Fill;
-        _devicesAction.Margin = new Padding(0, 0, 5, 6);
+        _devicesAction.Margin = new Padding(5, 0, 0, 6);
 
         ConfigureAction(_credentialAction, "设置解锁凭据", TechActionGlyph.Lock, false);
         _credentialAction.SubText = "Windows 账户密码";
         _credentialAction.Dock = DockStyle.Fill;
-        _credentialAction.Margin = new Padding(5, 0, 0, 6);
+        _credentialAction.Margin = new Padding(0, 0, 5, 0);
 
         ConfigureAction(_refreshAction, "重新广播", TechActionGlyph.Refresh, false);
         _refreshAction.SubText = "蓝牙外设";
         _refreshAction.Dock = DockStyle.Fill;
-        _refreshAction.Margin = new Padding(0, 0, 5, 0);
-
-        ConfigureAction(_logAction, "打开日志", TechActionGlyph.Log, false);
-        _logAction.SubText = "LOCAL ONLY";
-        _logAction.Dock = DockStyle.Fill;
-        _logAction.Margin = new Padding(5, 0, 0, 0);
+        _refreshAction.Margin = new Padding(5, 0, 0, 0);
 
         actions.Controls.Add(_pairingAction, 0, 0);
-        actions.Controls.Add(_devicesAction, 0, 1);
-        actions.Controls.Add(_credentialAction, 1, 1);
-        actions.Controls.Add(_refreshAction, 0, 2);
-        actions.Controls.Add(_logAction, 1, 2);
+        actions.Controls.Add(_nfcAction, 0, 1);
+        actions.Controls.Add(_devicesAction, 1, 1);
+        actions.Controls.Add(_credentialAction, 0, 2);
+        actions.Controls.Add(_refreshAction, 1, 2);
 
         var footer = new Panel
         {
@@ -308,23 +312,44 @@ internal sealed class TrayPopoverForm : TechForm
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
             Location = new Point(footer.Width - 120, 6)
         };
+        var logLink = new Label
+        {
+            Text = "打开日志  ›",
+            AutoSize = true,
+            Font = TechPalette.Caption,
+            ForeColor = TechPalette.Dim,
+            BackColor = Color.Transparent,
+            Cursor = Cursors.Hand,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Location = new Point(footer.Width - 220, 6)
+        };
+        logLink.MouseEnter += (_, _) => logLink.ForeColor = TechPalette.Mint;
+        logLink.MouseLeave += (_, _) => logLink.ForeColor = TechPalette.Dim;
+        logLink.Click += (_, _) => _openLog();
         footer.Controls.Add(local);
+        footer.Controls.Add(logLink);
         footer.Controls.Add(platform);
-        footer.Resize += (_, _) => platform.Left = Math.Max(0, footer.Width - platform.Width);
+        footer.Resize += (_, _) =>
+        {
+            platform.Left = Math.Max(0, footer.Width - platform.Width);
+            logLink.Left = Math.Max(local.Right + 12, platform.Left - logLink.Width - 20);
+        };
 
         root.Controls.Add(statusRow, 0, 0);
         root.Controls.Add(hero, 0, 2);
         root.Controls.Add(CreateSectionHeader("LIVE TELEMETRY", "实时通道"), 0, 4);
         root.Controls.Add(metrics, 0, 6);
-        root.Controls.Add(CreateSectionHeader("QUICK ACTIONS", "快捷操作"), 0, 8);
-        root.Controls.Add(actions, 0, 10);
-        root.Controls.Add(footer, 0, 12);
+        root.Controls.Add(_nfcStrip, 0, 8);
+        root.Controls.Add(CreateSectionHeader("QUICK ACTIONS", "快捷操作"), 0, 10);
+        root.Controls.Add(actions, 0, 12);
+        root.Controls.Add(footer, 0, 14);
 
         _pairingAction.Click += (_, _) => _showPairing();
+        _nfcAction.Click += (_, _) => ShowNfcInfo();
+        _nfcStrip.Click += (_, _) => ShowNfcInfo();
         _devicesAction.Click += (_, _) => _showDevices();
         _credentialAction.Click += (_, _) => _showCredential();
         _refreshAction.Click += (_, _) => _restartBle();
-        _logAction.Click += (_, _) => _openLog();
 
         Body.Controls.Add(root);
     }
@@ -431,6 +456,7 @@ internal sealed class TrayPopoverForm : TechForm
         var credentialSet = status?.CredentialSet == true;
         var rejected = status?.CredentialRejected == true;
         var ready = online && status?.Ready == true && !rejected;
+        var nfcVerified = online && status?.NfcLastUsedAt is not null;
         var trustCount = (online ? 1 : 0)
                          + (paired > 0 ? 1 : 0)
                          + (credentialSet ? 1 : 0);
@@ -453,9 +479,13 @@ internal sealed class TrayPopoverForm : TechForm
         {
             _servicePill.SetStatus("服务运行中", TechPalette.Mint);
             _heroTitle.Text = "本机已就绪";
-            _heroDescription.Text = ble.ConnectedClients > 0
-                ? $"手机通道已连接 · {ble.ConnectedClients} 台在线\n锁屏后可以直接确认解锁"
-                : "手机钥匙已配对\n锁屏后可以直接确认解锁";
+            _heroDescription.Text = nfcVerified
+                ? ble.ConnectedClients > 0
+                    ? $"手机通道已连接 · {ble.ConnectedClients} 台在线\nNFC 钥匙可复用现有签名链路"
+                    : "手机钥匙已配对\nNFC 钥匙可复用现有签名链路"
+                : ble.ConnectedClients > 0
+                    ? $"手机通道已连接 · {ble.ConnectedClients} 台在线\n锁屏后可以直接确认解锁"
+                    : "手机钥匙已配对\n锁屏后可以直接确认解锁";
             _trustRing.Tone = TechPalette.Mint;
         }
         else if (paired == 0)
@@ -483,6 +513,13 @@ internal sealed class TrayPopoverForm : TechForm
         _trustRing.Value = trustCount / 3f;
         _trustRing.CenterValue = $"{trustCount}/3";
         _trustRing.CenterCaption = ready ? "READY" : "CHECK";
+        _channelLabel.Text = !online
+            ? "LOCAL CHANNEL · ECDSA P-256"
+            : nfcVerified
+                ? "NFC KEY READY · ECDSA P-256"
+                : "PHONE KEY READY · ECDSA P-256";
+
+        ApplyNfcState(online, status);
 
         _bleMetric.Value = !ble.Advertising
             ? Compact(ble.Status, 10)
@@ -514,7 +551,66 @@ internal sealed class TrayPopoverForm : TechForm
         _credentialAction.SubText = credentialSet
             ? (rejected ? "已被系统拒绝" : "已保存")
             : "Windows 密码";
+        _nfcAction.SubText = !online
+            ? "服务离线"
+            : nfcVerified
+                ? status?.NfcKeyHint ?? "手机本地验签"
+                : "由手机管理";
         _refreshAction.SubText = ble.Advertising ? "蓝牙广播中" : Compact(ble.Status, 12);
+    }
+
+    private void ApplyNfcState(bool online, ServiceStatus? status)
+    {
+        if (!online)
+        {
+            _nfcStrip.Kicker = "NFC KEY · OFFLINE";
+            _nfcStrip.Value = "无法读取 NFC 状态";
+            _nfcStrip.Detail = "服务未运行";
+            _nfcStrip.Tone = TechPalette.Danger;
+            return;
+        }
+
+        var usedAt = status?.NfcLastUsedAt;
+        if (usedAt is null)
+        {
+            _nfcStrip.Kicker = "NFC KEY · WAITING";
+            _nfcStrip.Value = "等待手机本地验签";
+            _nfcStrip.Detail = "NFC 由手机读取";
+            _nfcStrip.Tone = TechPalette.Warning;
+            return;
+        }
+
+        _nfcStrip.Kicker = "NFC KEY · PHONE VERIFIED";
+        _nfcStrip.Value = string.IsNullOrWhiteSpace(status?.NfcKeyHint)
+            ? "手机本地验签完成"
+            : status!.NfcKeyHint;
+        _nfcStrip.Detail = "最近验证 " + FormatUnixTime(usedAt.Value);
+        _nfcStrip.Tone = TechPalette.Mint;
+    }
+
+    private void ShowNfcInfo()
+    {
+        TechMessageBox.Show(
+            this,
+            "NFC 钥匙由手机读取，并在手机本地完成验签。\n\n" +
+            "电脑不读取卡片，也无法在电脑端管理钥匙列表；Windows 只显示最近一次验签通过的钥匙指纹和验证时间。\n\n" +
+            "请在手机的「NFC 钥匙」页面完成绑定、重命名或删除。",
+            "NFC 钥匙",
+            TechMessageKind.Info);
+    }
+
+    private static string FormatUnixTime(long milliseconds)
+    {
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(milliseconds)
+                .ToLocalTime()
+                .ToString("MM-dd HH:mm");
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return "时间未知";
+        }
     }
 
     private static string Compact(string text, int maxLength)

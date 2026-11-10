@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -115,10 +116,20 @@ enum class BkGlyph {
     CLOCK,
     LINK,
     BLUETOOTH,
+    NFC,
     WIFI,
     TRASH,
     REFRESH,
     POWER
+}
+
+enum class NfcDialState {
+    UNBOUND,
+    READY,
+    SCANNING,
+    VERIFYING,
+    REJECTED,
+    UNAVAILABLE
 }
 
 @Composable
@@ -467,6 +478,227 @@ fun TrustDial(
                 letterSpacing = 0.7.sp,
                 textAlign = TextAlign.Center,
                 maxLines = 2
+            )
+        }
+    }
+}
+
+@Composable
+fun NfcTapDial(
+    state: NfcDialState,
+    statusLabel: String,
+    modifier: Modifier = Modifier
+) {
+    val motion = motionAllowed()
+    val transition = rememberInfiniteTransition(label = "nfc-dial")
+    val pulse by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "nfc-pulse"
+    )
+    val sweep by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "nfc-sweep"
+    )
+    val tone = when (state) {
+        NfcDialState.READY -> Bk.Mint
+        NfcDialState.SCANNING -> Bk.Amber
+        NfcDialState.VERIFYING -> Bk.Mint
+        NfcDialState.REJECTED -> Bk.Coral
+        NfcDialState.UNBOUND,
+        NfcDialState.UNAVAILABLE -> Bk.Dim
+    }
+    val active = state == NfcDialState.SCANNING || state == NfcDialState.VERIFYING
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val diameter = size.minDimension
+            repeat(48) { index ->
+                val angle = Math.toRadians((index * 7.5) - 90.0)
+                val major = index % 4 == 0
+                val inner = diameter * if (major) 0.43f else 0.447f
+                val outer = diameter * 0.462f
+                drawLine(
+                    color = Color.White.copy(alpha = if (major) 0.15f else 0.055f),
+                    start = Offset(
+                        center.x + kotlin.math.cos(angle).toFloat() * inner,
+                        center.y + kotlin.math.sin(angle).toFloat() * inner
+                    ),
+                    end = Offset(
+                        center.x + kotlin.math.cos(angle).toFloat() * outer,
+                        center.y + kotlin.math.sin(angle).toFloat() * outer
+                    ),
+                    strokeWidth = if (major) 1.25.dp.toPx() else 0.7.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+
+            drawCircle(
+                color = tone.copy(alpha = 0.055f),
+                radius = diameter * 0.34f
+            )
+            drawCircle(
+                color = tone.copy(alpha = 0.15f),
+                radius = diameter * 0.34f,
+                style = Stroke(width = 1.dp.toPx())
+            )
+
+            if (motion && active) {
+                repeat(3) { index ->
+                    val phase = (pulse + index / 3f) % 1f
+                    drawCircle(
+                        color = tone.copy(alpha = (1f - phase) * 0.18f),
+                        radius = diameter * (0.21f + phase * 0.24f),
+                        style = Stroke(width = 1.1.dp.toPx())
+                    )
+                }
+            }
+
+            if (motion && state == NfcDialState.VERIFYING) {
+                drawArc(
+                    color = tone.copy(alpha = 0.72f),
+                    startAngle = sweep,
+                    sweepAngle = 76f,
+                    useCenter = false,
+                    topLeft = Offset(
+                        center.x - diameter * 0.355f,
+                        center.y - diameter * 0.355f
+                    ),
+                    size = Size(diameter * 0.71f, diameter * 0.71f),
+                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+
+            val cardWidth = diameter * 0.34f
+            val cardHeight = diameter * 0.205f
+            rotate(degrees = -8f, pivot = center) {
+                val left = center.x - cardWidth / 2f
+                val top = center.y - cardHeight / 2f - diameter * 0.018f
+                val cardTopLeft = Offset(left, top)
+                val cardSize = Size(cardWidth, cardHeight)
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            tone.copy(alpha = if (state == NfcDialState.UNBOUND) 0.035f else 0.16f),
+                            Bk.Surface.copy(alpha = 0.98f)
+                        ),
+                        start = cardTopLeft,
+                        end = Offset(left + cardWidth, top + cardHeight)
+                    ),
+                    topLeft = cardTopLeft,
+                    size = cardSize,
+                    cornerRadius = CornerRadius(diameter * 0.035f)
+                )
+                drawRoundRect(
+                    color = tone.copy(alpha = if (state == NfcDialState.UNAVAILABLE) 0.12f else 0.34f),
+                    topLeft = cardTopLeft,
+                    size = cardSize,
+                    cornerRadius = CornerRadius(diameter * 0.035f),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                drawRoundRect(
+                    color = tone.copy(alpha = if (state == NfcDialState.UNAVAILABLE) 0.10f else 0.72f),
+                    topLeft = Offset(left + cardWidth * 0.13f, top + cardHeight * 0.22f),
+                    size = Size(cardWidth * 0.22f, cardHeight * 0.27f),
+                    cornerRadius = CornerRadius(diameter * 0.008f)
+                )
+                drawLine(
+                    color = tone.copy(alpha = 0.32f),
+                    start = Offset(left + cardWidth * 0.13f, top + cardHeight * 0.68f),
+                    end = Offset(left + cardWidth * 0.42f, top + cardHeight * 0.68f),
+                    strokeWidth = 1.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+
+            val waveLeft = center.x + diameter * 0.15f
+            repeat(3) { index ->
+                val spread = diameter * (0.065f + index * 0.034f)
+                drawArc(
+                    color = tone.copy(alpha = 0.78f - index * 0.16f),
+                    startAngle = -54f,
+                    sweepAngle = 108f,
+                    useCenter = false,
+                    topLeft = Offset(waveLeft, center.y - spread),
+                    size = Size(spread * 2f, spread * 2f),
+                    style = Stroke(
+                        width = (1.5f - index * 0.25f).dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                )
+            }
+
+            if (state == NfcDialState.UNBOUND) {
+                drawLine(
+                    color = tone.copy(alpha = 0.75f),
+                    start = Offset(center.x, center.y - diameter * 0.055f),
+                    end = Offset(center.x, center.y + diameter * 0.055f),
+                    strokeWidth = 1.6.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    color = tone.copy(alpha = 0.75f),
+                    start = Offset(center.x - diameter * 0.055f, center.y),
+                    end = Offset(center.x + diameter * 0.055f, center.y),
+                    strokeWidth = 1.6.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+
+            if (state == NfcDialState.REJECTED) {
+                val badgeCenter = Offset(
+                    center.x + diameter * 0.15f,
+                    center.y - diameter * 0.12f
+                )
+                drawCircle(Bk.Coral.copy(alpha = 0.15f), diameter * 0.045f, badgeCenter)
+                drawLine(
+                    Bk.Coral,
+                    Offset(badgeCenter.x - diameter * 0.016f, badgeCenter.y - diameter * 0.016f),
+                    Offset(badgeCenter.x + diameter * 0.016f, badgeCenter.y + diameter * 0.016f),
+                    strokeWidth = 1.4.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    Bk.Coral,
+                    Offset(badgeCenter.x + diameter * 0.016f, badgeCenter.y - diameter * 0.016f),
+                    Offset(badgeCenter.x - diameter * 0.016f, badgeCenter.y + diameter * 0.016f),
+                    strokeWidth = 1.4.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+
+            if (state == NfcDialState.UNAVAILABLE) {
+                drawLine(
+                    color = Bk.Dim.copy(alpha = 0.72f),
+                    start = Offset(center.x - diameter * 0.16f, center.y - diameter * 0.16f),
+                    end = Offset(center.x + diameter * 0.16f, center.y + diameter * 0.16f),
+                    strokeWidth = 1.4.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 22.dp)
+        ) {
+            Text(
+                text = statusLabel,
+                color = tone,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.2.sp
             )
         }
     }
@@ -1566,6 +1798,34 @@ fun BkIcon(
                     lineTo(p(7f, 8f).x, p(7f, 8f).y)
                 }
                 drawPath(path, tint, style = stroke)
+            }
+            BkGlyph.NFC -> {
+                drawRoundRect(
+                    color = tint,
+                    topLeft = p(3f, 6f),
+                    size = Size(s(13f), s(12f)),
+                    cornerRadius = CornerRadius(s(2f)),
+                    style = stroke
+                )
+                drawLine(tint, p(6f, 9.5f), p(9.5f, 9.5f), stroke.width, StrokeCap.Round)
+                drawArc(
+                    tint,
+                    startAngle = -55f,
+                    sweepAngle = 110f,
+                    useCenter = false,
+                    topLeft = p(16f, 7f),
+                    size = Size(s(4f), s(10f)),
+                    style = stroke
+                )
+                drawArc(
+                    tint,
+                    startAngle = -55f,
+                    sweepAngle = 110f,
+                    useCenter = false,
+                    topLeft = p(19f, 4.5f),
+                    size = Size(s(4f), s(15f)),
+                    style = stroke
+                )
             }
             BkGlyph.WIFI -> {
                 drawArc(

@@ -13,7 +13,13 @@ public static class MessageTypes
 
 public sealed record PairRequest(string? DeviceName, string? DevicePublicKey);
 public sealed record PairConfirm(string? PairingId, string? Pin);
-public sealed record UnlockRequest(string? DeviceId, string? Nonce, long Timestamp, string? Signature);
+public sealed record UnlockRequest(
+    string? DeviceId,
+    string? Nonce,
+    long Timestamp,
+    string? Signature,
+    string? Method,
+    string? KeyHint);
 public sealed record PairChallengeResponse(string PairingId);
 public sealed record PairSuccessResponse(string DeviceId, string DeviceName);
 public sealed record UnlockResultResponse(bool Ok, string? Error, long RequestId);

@@ -2,9 +2,13 @@ package com.bandkey.app
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.nfc.NfcAdapter
+import android.nfc.Tag
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -72,11 +76,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { }
+    private var nfcAdapter: NfcAdapter? = null
+    @Volatile
+    private var nfcTagHandler: ((Tag) -> Unit)? = null
+    private var nfcReaderWanted = false
+    private var nfcTagDelivered = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,6 +100,10 @@ class MainActivity : ComponentActivity() {
             ?.takeIf { it == "ble" || it == "wifi" }
             ?: "ble"
         val savedDeviceName = prefs.getString("device_name", null) ?: "我的手机"
+        val savedUnlockChannel = prefs.getString("unlock_channel", "phone")
+            ?.takeIf { it == "phone" || it == "nfc" }
+            ?: "phone"
+        nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         ensureBlePermissions()
 
         setContent {
@@ -99,6 +112,7 @@ class MainActivity : ComponentActivity() {
                     initialMode = savedMode,
                     initialUrl = savedUrl ?: "ws://192.168.1.71:23234/bandkey",
                     initialDeviceName = savedDeviceName,
+                    initialUnlockChannel = savedUnlockChannel,
                     onModeChange = { value ->
                         prefs.edit().putString("transport_mode", value).apply()
                     },
@@ -108,10 +122,100 @@ class MainActivity : ComponentActivity() {
                     onDeviceNameChange = { value ->
                         prefs.edit().putString("device_name", value).apply()
                     },
-                    onNeedBlePermissions = { ensureBlePermissions() }
+                    onUnlockChannelChange = { value ->
+                        prefs.edit().putString("unlock_channel", value).apply()
+                    },
+                    onNeedBlePermissions = { ensureBlePermissions() },
+                    nfcAvailabilityProvider = { currentNfcAvailability() },
+                    onStartNfcReader = { handler -> startNfcReader(handler) },
+                    onStopNfcReader = { stopNfcReader() },
+                    onOpenNfcSettings = { openNfcSettings() }
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (nfcReaderWanted && !nfcTagDelivered) {
+            enableNfcReader()
+        }
+    }
+
+    override fun onPause() {
+        disableNfcReader()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        stopNfcReader()
+        super.onDestroy()
+    }
+
+    override fun onTagDiscovered(tag: Tag) {
+        runOnUiThread {
+            if (nfcTagDelivered) {
+                return@runOnUiThread
+            }
+            val handler = nfcTagHandler ?: return@runOnUiThread
+            nfcTagDelivered = true
+            handler(tag)
+        }
+    }
+
+    private fun startNfcReader(handler: (Tag) -> Unit): NfcAvailability {
+        val availability = currentNfcAvailability()
+        if (availability != NfcAvailability.READY) {
+            return availability
+        }
+        nfcTagHandler = handler
+        nfcReaderWanted = true
+        nfcTagDelivered = false
+        return if (enableNfcReader()) NfcAvailability.READY else NfcAvailability.DISABLED
+    }
+
+    private fun stopNfcReader() {
+        nfcReaderWanted = false
+        nfcTagHandler = null
+        nfcTagDelivered = false
+        disableNfcReader()
+    }
+
+    private fun currentNfcAvailability(): NfcAvailability {
+        val adapter = nfcAdapter ?: return NfcAvailability.UNSUPPORTED
+        return if (adapter.isEnabled) NfcAvailability.READY else NfcAvailability.DISABLED
+    }
+
+    private fun enableNfcReader(): Boolean {
+        val adapter = nfcAdapter ?: return false
+        if (!adapter.isEnabled) {
+            return false
+        }
+        return runCatching {
+            adapter.enableReaderMode(
+                this,
+                this,
+                NfcAdapter.FLAG_READER_NFC_A or
+                    NfcAdapter.FLAG_READER_NFC_B or
+                    NfcAdapter.FLAG_READER_NFC_F or
+                    NfcAdapter.FLAG_READER_NFC_V or
+                    NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK,
+                null
+            )
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun disableNfcReader() {
+        runCatching { nfcAdapter?.disableReaderMode(this) }
+    }
+
+    private fun openNfcSettings() {
+        val intent = Intent(Settings.ACTION_NFC_SETTINGS)
+        runCatching { startActivity(intent) }
+            .onFailure {
+                runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+            }
     }
 
     private fun ensureBlePermissions() {
@@ -142,10 +246,31 @@ private data class UiError(
     val code: String
 )
 
+private enum class NfcAvailability {
+    READY,
+    DISABLED,
+    UNSUPPORTED
+}
+
+private enum class NfcPhase {
+    IDLE,
+    SCANNING,
+    BINDING,
+    VERIFYING,
+    REJECTED,
+    ERROR
+}
+
+private enum class NfcScanPurpose {
+    BIND,
+    UNLOCK
+}
+
 private data class UnlockReceipt(
     val at: Long,
     val target: String,
-    val channel: String
+    val channel: String,
+    val keyHint: String? = null
 )
 
 @Composable
@@ -153,19 +278,27 @@ private fun BandKeyScreen(
     initialMode: String,
     initialUrl: String,
     initialDeviceName: String,
+    initialUnlockChannel: String,
     onModeChange: (String) -> Unit,
     onUrlChange: (String) -> Unit,
     onDeviceNameChange: (String) -> Unit,
-    onNeedBlePermissions: () -> Unit
+    onUnlockChannelChange: (String) -> Unit,
+    onNeedBlePermissions: () -> Unit,
+    nfcAvailabilityProvider: () -> NfcAvailability,
+    onStartNfcReader: ((Tag) -> Unit) -> NfcAvailability,
+    onStopNfcReader: () -> Unit,
+    onOpenNfcSettings: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val pairingStore = remember { PairingStore(context) }
+    val nfcKeyStore = remember { NfcKeyStore(context) }
 
     var tab by remember { mutableStateOf(MainTab.UNLOCK) }
     var mode by remember { mutableStateOf(initialMode) }
     var serverUrl by remember { mutableStateOf(initialUrl) }
     var deviceName by remember { mutableStateOf(initialDeviceName) }
+    var unlockChannel by remember { mutableStateOf(initialUnlockChannel) }
     var status by remember { mutableStateOf("等待建立安全通道") }
     var keyPair by remember { mutableStateOf<KeyPair?>(null) }
     var deviceId by remember { mutableStateOf("") }
@@ -181,6 +314,15 @@ private fun BandKeyScreen(
     var pendingUnpair by remember { mutableStateOf(false) }
     var uiError by remember { mutableStateOf<UiError?>(null) }
     var receipt by remember { mutableStateOf<UnlockReceipt?>(null) }
+    var nfcAvailability by remember { mutableStateOf(nfcAvailabilityProvider()) }
+    var nfcKeys by remember { mutableStateOf<List<NfcKeyRecord>>(emptyList()) }
+    var nfcPhase by remember { mutableStateOf(NfcPhase.IDLE) }
+    var nfcScanPurpose by remember { mutableStateOf<NfcScanPurpose?>(null) }
+    var nfcNotice by remember { mutableStateOf("") }
+    var nfcRejectedHint by remember { mutableStateOf("") }
+    var nfcRenameTarget by remember { mutableStateOf<NfcKeyRecord?>(null) }
+    var nfcRenameValue by remember { mutableStateOf("") }
+    var nfcDeleteTarget by remember { mutableStateOf<NfcKeyRecord?>(null) }
 
     LaunchedEffect(Unit) {
         val record = withContext(Dispatchers.IO) { pairingStore.load() }
@@ -197,6 +339,14 @@ private fun BandKeyScreen(
                 .onFailure {
                     status = "配对信息已损坏，请重新配对"
                 }
+        }
+    }
+
+    LaunchedEffect(nfcKeyStore) {
+        nfcKeys = withContext(Dispatchers.IO) { nfcKeyStore.load() }
+        nfcAvailability = nfcAvailabilityProvider()
+        if (!nfcKeys.isEmpty()) {
+            nfcNotice = "已加载 ${nfcKeys.size} 张 NFC 钥匙"
         }
     }
 
@@ -373,7 +523,7 @@ private fun BandKeyScreen(
         }
     }
 
-    fun unlock() {
+    fun unlock(channelLabel: String? = null, nfcKeyHint: String? = null) {
         val pair = keyPair
         if (pair == null || deviceId.isEmpty()) {
             openPairing()
@@ -393,20 +543,30 @@ private fun BandKeyScreen(
             status = "正在验证签名并请求解锁…"
             try {
                 runWithTransport { client ->
-                    val result = client.unlock(pair, deviceId)
+                    val result = client.unlock(
+                        keyPair = pair,
+                        deviceId = deviceId,
+                        method = if (nfcKeyHint == null) "phone" else "nfc",
+                        keyHint = nfcKeyHint
+                    )
                     val ok = result.getJSONObject("payload").optBoolean("ok")
                     if (!ok) {
                         throw ProtocolException("unlock_denied: 电脑拒绝了本次解锁请求")
                     }
                 }
-                val channel = if (activeChannel == "lan") "局域网 TCP" else "蓝牙 LE"
+                val transport = if (activeChannel == "lan") "局域网 TCP" else "蓝牙 LE"
+                val channel = channelLabel ?: transport
                 receipt = UnlockReceipt(
                     at = System.currentTimeMillis(),
                     target = targetLabel(serverUrl, mode),
-                    channel = channel
+                    channel = channel,
+                    keyHint = nfcKeyHint
                 )
                 credentialReady = true
                 status = "解锁成功，电脑正在进入桌面"
+                if (nfcKeyHint != null) {
+                    nfcNotice = "NFC 验证成功 · $nfcKeyHint"
+                }
             } catch (e: Exception) {
                 val raw = e.message.orEmpty()
                 credentialReady = when {
@@ -419,6 +579,7 @@ private fun BandKeyScreen(
                 status = uiError?.title ?: "解锁失败"
             } finally {
                 busy = false
+                nfcPhase = NfcPhase.IDLE
             }
         }
     }
@@ -437,6 +598,233 @@ private fun BandKeyScreen(
             receipt = null
             uiError = null
             status = "已解除本机配对"
+        }
+    }
+
+    fun selectUnlockChannel(channel: String) {
+        if (channel == unlockChannel) {
+            if (channel == "nfc") {
+                nfcAvailability = nfcAvailabilityProvider()
+            }
+            return
+        }
+        nfcScanPurpose = null
+        nfcPhase = NfcPhase.IDLE
+        onStopNfcReader()
+        unlockChannel = channel
+        onUnlockChannelChange(channel)
+        if (channel == "nfc") {
+            nfcAvailability = nfcAvailabilityProvider()
+            nfcNotice = if (nfcKeys.isEmpty()) {
+                "绑定一张实体卡，作为本机备用钥匙"
+            } else {
+                "将 NFC 钥匙靠近手机背面"
+            }
+        }
+    }
+
+    fun stopNfcScan(message: String? = null) {
+        nfcScanPurpose = null
+        nfcPhase = NfcPhase.IDLE
+        onStopNfcReader()
+        if (message != null) {
+            nfcNotice = message
+        }
+    }
+
+    suspend fun bindNfcTag(tag: Tag) {
+        val existing = withContext(Dispatchers.IO) {
+            runCatching { NfcCard.readPayload(tag) }.getOrNull()
+        }
+        val existingHash = existing
+            ?.takeIf(NfcCredential::isValid)
+            ?.let(NfcCredential::hash)
+        val remaining = nfcKeys.filterNot { record ->
+            existingHash != null && NfcCredential.hashEquals(record.tokenHash, existingHash)
+        }
+        if (remaining.size >= NfcKeyStore.MAX_KEYS) {
+            nfcPhase = NfcPhase.ERROR
+            nfcNotice = "最多绑定 ${NfcKeyStore.MAX_KEYS} 张 NFC 钥匙，请先移除旧钥匙"
+            return
+        }
+
+        val payload = NfcCredential.newPayload()
+        val written = withContext(Dispatchers.IO) {
+            runCatching { NfcCard.writePayload(tag, payload) }.getOrDefault(false)
+        }
+        if (!written) {
+            nfcPhase = NfcPhase.ERROR
+            nfcNotice = "这张卡不可写入，或已有其他 NDEF 数据；请换一张空白卡"
+            return
+        }
+
+        val hash = NfcCredential.hash(payload)
+        val hint = NfcCredential.hint(hash)
+        val now = System.currentTimeMillis()
+        val record = NfcKeyRecord(
+            id = java.util.UUID.randomUUID().toString(),
+            name = "NFC 钥匙 ${remaining.size + 1}",
+            tokenHash = hash,
+            hint = hint,
+            boundAt = now,
+            lastUsedAt = 0L
+        )
+        val updated = (listOf(record) + remaining).take(NfcKeyStore.MAX_KEYS)
+        withContext(Dispatchers.IO) { nfcKeyStore.save(updated) }
+        nfcKeys = updated
+        nfcPhase = NfcPhase.IDLE
+        nfcRejectedHint = ""
+        nfcNotice = "NFC 钥匙已绑定 · $hint"
+    }
+
+    suspend fun readNfcUnlock(tag: Tag) {
+        val payload = withContext(Dispatchers.IO) {
+            runCatching { NfcCard.readPayload(tag) }.getOrNull()
+        }
+        if (payload == null) {
+            nfcPhase = NfcPhase.ERROR
+            nfcNotice = "没有读取到 NDEF 数据，请重新贴卡"
+            return
+        }
+        if (!NfcCredential.isValid(payload)) {
+            nfcPhase = NfcPhase.REJECTED
+            nfcRejectedHint = ""
+            nfcNotice = "已读取卡片，但其中没有 BandKey 身份令牌"
+            return
+        }
+
+        val hash = NfcCredential.hash(payload)
+        val record = nfcKeys.firstOrNull {
+            NfcCredential.hashEquals(it.tokenHash, hash)
+        }
+        if (record == null) {
+            nfcPhase = NfcPhase.REJECTED
+            nfcRejectedHint = NfcCredential.hint(hash)
+            nfcNotice = "这张卡尚未加入本机授权列表"
+            return
+        }
+
+        val used = record.copy(lastUsedAt = System.currentTimeMillis())
+        val updated = nfcKeys.map { if (it.id == used.id) used else it }
+        withContext(Dispatchers.IO) { nfcKeyStore.save(updated) }
+        nfcKeys = updated
+        nfcRejectedHint = ""
+        nfcPhase = NfcPhase.VERIFYING
+        nfcNotice = "正在核对 ${used.hint}"
+        unlock(channelLabel = "NFC · 本地验签", nfcKeyHint = used.hint)
+    }
+
+    fun handleNfcTag(tag: Tag) {
+        val purpose = nfcScanPurpose ?: return
+        nfcScanPurpose = null
+        onStopNfcReader()
+        scope.launch {
+            nfcPhase = if (purpose == NfcScanPurpose.BIND) NfcPhase.BINDING else NfcPhase.VERIFYING
+            try {
+                when (purpose) {
+                    NfcScanPurpose.BIND -> bindNfcTag(tag)
+                    NfcScanPurpose.UNLOCK -> readNfcUnlock(tag)
+                }
+            } catch (e: Exception) {
+                nfcPhase = NfcPhase.ERROR
+                nfcNotice = "NFC 读取失败：${e.message ?: "请重新贴卡"}"
+            }
+        }
+    }
+
+    fun beginNfcScan(purpose: NfcScanPurpose) {
+        if (busy) {
+            return
+        }
+        val availability = nfcAvailabilityProvider()
+        nfcAvailability = availability
+        if (availability != NfcAvailability.READY) {
+            nfcScanPurpose = null
+            nfcPhase = NfcPhase.IDLE
+            nfcNotice = when (availability) {
+                NfcAvailability.UNSUPPORTED -> "这台手机没有 NFC 读卡硬件"
+                NfcAvailability.DISABLED -> "请先在系统设置中开启 NFC"
+                NfcAvailability.READY -> ""
+            }
+            return
+        }
+
+        nfcScanPurpose = purpose
+        nfcPhase = NfcPhase.SCANNING
+        nfcNotice = if (purpose == NfcScanPurpose.BIND) {
+            "请将空白 NFC 卡贴近手机背面"
+        } else {
+            "将已绑定的 NFC 钥匙贴近手机背面"
+        }
+        val started = onStartNfcReader { tag -> handleNfcTag(tag) }
+        if (started != NfcAvailability.READY) {
+            nfcAvailability = started
+            nfcScanPurpose = null
+            nfcPhase = NfcPhase.IDLE
+            onStopNfcReader()
+            nfcNotice = when (started) {
+                NfcAvailability.UNSUPPORTED -> "这台手机没有 NFC 读卡硬件"
+                NfcAvailability.DISABLED -> "请先在系统设置中开启 NFC"
+                NfcAvailability.READY -> ""
+            }
+        }
+    }
+
+    fun bindNfcKey() {
+        beginNfcScan(NfcScanPurpose.BIND)
+    }
+
+    fun openNfcBinding() {
+        tab = MainTab.UNLOCK
+        if (unlockChannel != "nfc") {
+            selectUnlockChannel("nfc")
+        }
+        bindNfcKey()
+    }
+
+    fun scanNfcUnlock() {
+        if (nfcKeys.isEmpty()) {
+            bindNfcKey()
+            return
+        }
+        if (deviceId.isEmpty() || keyPair == null) {
+            openPairing()
+            return
+        }
+        beginNfcScan(NfcScanPurpose.UNLOCK)
+    }
+
+    fun renameNfcKey(record: NfcKeyRecord, name: String) {
+        val safe = name.trim().take(32)
+        if (safe.isEmpty()) {
+            nfcNotice = "钥匙名称不能为空"
+            return
+        }
+        scope.launch {
+            val updated = nfcKeys.map { if (it.id == record.id) it.copy(name = safe) else it }
+            withContext(Dispatchers.IO) { nfcKeyStore.save(updated) }
+            nfcKeys = updated
+            nfcRenameTarget = null
+            nfcNotice = "钥匙已重命名为 $safe"
+        }
+    }
+
+    fun deleteNfcKey(record: NfcKeyRecord) {
+        if (nfcPhase == NfcPhase.SCANNING) {
+            stopNfcScan()
+        }
+        scope.launch {
+            val updated = nfcKeys.filterNot { it.id == record.id }
+            withContext(Dispatchers.IO) { nfcKeyStore.save(updated) }
+            nfcKeys = updated
+            nfcDeleteTarget = null
+            nfcPhase = NfcPhase.IDLE
+            nfcRejectedHint = ""
+            nfcNotice = if (updated.isEmpty()) {
+                "已移除全部 NFC 钥匙，可随时重新绑定"
+            } else {
+                "已移除 ${record.hint}"
+            }
         }
     }
 
@@ -476,6 +864,25 @@ private fun BandKeyScreen(
                             busy = busy,
                             status = status,
                             lastReceipt = receipt,
+                            nfcMode = unlockChannel == "nfc",
+                            nfcAvailability = nfcAvailability,
+                            nfcKeys = nfcKeys,
+                            nfcPhase = nfcPhase,
+                            nfcNotice = nfcNotice,
+                            nfcRejectedHint = nfcRejectedHint,
+                            onChannelChange = { selectUnlockChannel(it) },
+                            onBindNfc = { bindNfcKey() },
+                            onScanNfc = { scanNfcUnlock() },
+                            onCancelNfc = { stopNfcScan("已取消 NFC 扫描") },
+                            onOpenNfcSettings = onOpenNfcSettings,
+                            onRefreshNfc = {
+                                nfcAvailability = nfcAvailabilityProvider()
+                                nfcNotice = when (nfcAvailability) {
+                                    NfcAvailability.READY -> "NFC 已可用，可以继续贴卡"
+                                    NfcAvailability.DISABLED -> "NFC 仍处于关闭状态"
+                                    NfcAvailability.UNSUPPORTED -> "这台手机没有 NFC 读卡硬件"
+                                }
+                            },
                             onUnlock = { unlock() },
                             onPair = { openPairing() }
                         )
@@ -484,8 +891,16 @@ private fun BandKeyScreen(
                             deviceId = deviceId,
                             pairedAt = pairedAt,
                             busy = busy,
+                            nfcAvailability = nfcAvailability,
+                            nfcKeys = nfcKeys,
                             onPair = { openPairing() },
-                            onRequestUnpair = { pendingUnpair = true }
+                            onRequestUnpair = { pendingUnpair = true },
+                            onBindNfc = { openNfcBinding() },
+                            onRenameNfc = { record ->
+                                nfcRenameTarget = record
+                                nfcRenameValue = record.name
+                            },
+                            onDeleteNfc = { record -> nfcDeleteTarget = record }
                         )
                         MainTab.SETTINGS -> SettingsScreen(
                             mode = mode,
@@ -603,6 +1018,23 @@ private fun BandKeyScreen(
                     onConfirm = { unpair() }
                 )
             }
+
+            nfcRenameTarget?.let { record ->
+                NfcKeyNameOverlay(
+                    value = nfcRenameValue,
+                    onValueChange = { nfcRenameValue = it.take(32) },
+                    onCancel = { nfcRenameTarget = null },
+                    onConfirm = { renameNfcKey(record, nfcRenameValue) }
+                )
+            }
+
+            nfcDeleteTarget?.let { record ->
+                NfcKeyDeleteOverlay(
+                    record = record,
+                    onCancel = { nfcDeleteTarget = null },
+                    onConfirm = { deleteNfcKey(record) }
+                )
+            }
         }
     }
 }
@@ -617,6 +1049,71 @@ private fun UnlockHome(
     busy: Boolean,
     status: String,
     lastReceipt: UnlockReceipt?,
+    nfcMode: Boolean,
+    nfcAvailability: NfcAvailability,
+    nfcKeys: List<NfcKeyRecord>,
+    nfcPhase: NfcPhase,
+    nfcNotice: String,
+    nfcRejectedHint: String,
+    onChannelChange: (String) -> Unit,
+    onBindNfc: () -> Unit,
+    onScanNfc: () -> Unit,
+    onCancelNfc: () -> Unit,
+    onOpenNfcSettings: () -> Unit,
+    onRefreshNfc: () -> Unit,
+    onUnlock: () -> Unit,
+    onPair: () -> Unit
+) {
+    if (nfcMode) {
+        NfcUnlockHome(
+            deviceName = deviceName,
+            paired = paired,
+            credentialReady = credentialReady,
+            busy = busy,
+            status = status,
+            lastReceipt = lastReceipt,
+            nfcAvailability = nfcAvailability,
+            nfcKeys = nfcKeys,
+            nfcPhase = nfcPhase,
+            nfcNotice = nfcNotice,
+            nfcRejectedHint = nfcRejectedHint,
+            onChannelChange = onChannelChange,
+            onBindNfc = onBindNfc,
+            onScanNfc = onScanNfc,
+            onCancelNfc = onCancelNfc,
+            onOpenNfcSettings = onOpenNfcSettings,
+            onRefreshNfc = onRefreshNfc,
+            onPair = onPair
+        )
+        return
+    }
+
+    PhoneUnlockHome(
+        deviceName = deviceName,
+        mode = mode,
+        activeChannel = activeChannel,
+        paired = paired,
+        credentialReady = credentialReady,
+        busy = busy,
+        status = status,
+        lastReceipt = lastReceipt,
+        onChannelChange = onChannelChange,
+        onUnlock = onUnlock,
+        onPair = onPair
+    )
+}
+
+@Composable
+private fun PhoneUnlockHome(
+    deviceName: String,
+    mode: String,
+    activeChannel: String?,
+    paired: Boolean,
+    credentialReady: Boolean,
+    busy: Boolean,
+    status: String,
+    lastReceipt: UnlockReceipt?,
+    onChannelChange: (String) -> Unit,
     onUnlock: () -> Unit,
     onPair: () -> Unit
 ) {
@@ -669,6 +1166,13 @@ private fun UnlockHome(
                     else -> Bk.Iris
                 },
                 pulsing = busy
+            )
+            Spacer(Modifier.height(12.dp))
+            SegmentedControl(
+                options = listOf("蓝牙 LE", "NFC 钥匙"),
+                selectedIndex = 0,
+                onSelect = { index -> if (index == 1) onChannelChange("nfc") },
+                modifier = Modifier.fillMaxWidth()
             )
 
             Column(
@@ -801,13 +1305,339 @@ private fun UnlockHome(
 }
 
 @Composable
+private fun NfcUnlockHome(
+    deviceName: String,
+    paired: Boolean,
+    credentialReady: Boolean,
+    busy: Boolean,
+    status: String,
+    lastReceipt: UnlockReceipt?,
+    nfcAvailability: NfcAvailability,
+    nfcKeys: List<NfcKeyRecord>,
+    nfcPhase: NfcPhase,
+    nfcNotice: String,
+    nfcRejectedHint: String,
+    onChannelChange: (String) -> Unit,
+    onBindNfc: () -> Unit,
+    onScanNfc: () -> Unit,
+    onCancelNfc: () -> Unit,
+    onOpenNfcSettings: () -> Unit,
+    onRefreshNfc: () -> Unit,
+    onPair: () -> Unit
+) {
+    val activeKey = nfcKeys.firstOrNull()
+    val unavailable = nfcAvailability != NfcAvailability.READY
+    val scanning = nfcPhase == NfcPhase.SCANNING
+    val writing = nfcPhase == NfcPhase.BINDING
+    val verifying = nfcPhase == NfcPhase.VERIFYING
+    val rejected = nfcPhase == NfcPhase.REJECTED
+    val failed = nfcPhase == NfcPhase.ERROR
+
+    val heading = when {
+        nfcAvailability == NfcAvailability.UNSUPPORTED -> "这台手机不支持 NFC"
+        nfcAvailability == NfcAvailability.DISABLED -> "NFC 已关闭"
+        scanning && activeKey == null -> "绑定 NFC 钥匙"
+        scanning -> "贴卡解锁"
+        writing -> "正在写入卡片"
+        verifying -> "正在验证卡片"
+        rejected -> "这张卡尚未绑定"
+        failed -> "NFC 读取失败"
+        activeKey == null -> "还没有 NFC 钥匙"
+        !paired -> "先配对一台电脑"
+        else -> "贴卡解锁"
+    }
+    val subtitle = when {
+        nfcAvailability == NfcAvailability.UNSUPPORTED ->
+            "NFC 解锁需要具备读卡能力的 Android 手机，当前仍可使用蓝牙或局域网。"
+        nfcAvailability == NfcAvailability.DISABLED ->
+            "请先在系统设置中开启 NFC，然后返回重试。"
+        scanning && activeKey == null ->
+            "请将空白卡贴近手机背面，绑定会写入新的随机身份令牌。"
+        scanning ->
+            "将 NFC 钥匙靠近手机背面，保持 1–2 秒。"
+        writing ->
+            "请保持卡片贴近手机，写入完成后会自动保存。"
+        verifying ->
+            "已读取身份令牌，正在本机核对授权。"
+        rejected ->
+            nfcRejectedHint.ifBlank {
+                "已读取 BandKey 卡，但卡片内容不属于本机。"
+            }.let { "$it · 未加入本机授权列表" }
+        failed ->
+            nfcNotice.ifBlank { "请重新贴卡，或检查卡片是否支持 NDEF。" }
+        activeKey == null ->
+            "绑定一张实体卡，作为这台电脑的本地备用钥匙。"
+        !paired ->
+            "NFC 钥匙已绑定，但解锁电脑前仍需完成一次设备配对。"
+        else ->
+            "轻触实体钥匙即可解锁电脑，卡片内容不会离开手机。"
+    }
+    val dialState = when {
+        unavailable -> NfcDialState.UNAVAILABLE
+        scanning -> NfcDialState.SCANNING
+        writing || verifying || busy -> NfcDialState.VERIFYING
+        rejected -> NfcDialState.REJECTED
+        activeKey == null -> NfcDialState.UNBOUND
+        else -> NfcDialState.READY
+    }
+    val dialLabel = when (dialState) {
+        NfcDialState.UNBOUND -> "NO KEY"
+        NfcDialState.READY -> "NFC READY"
+        NfcDialState.SCANNING -> "SCANNING"
+        NfcDialState.VERIFYING -> if (writing) "WRITING" else "VERIFYING"
+        NfcDialState.REJECTED -> "NOT BOUND"
+        NfcDialState.UNAVAILABLE -> "UNAVAILABLE"
+    }
+    val tone = when {
+        rejected || failed -> Bk.Coral
+        scanning || writing || verifying || busy -> Bk.Amber
+        activeKey != null && paired && !unavailable -> Bk.Mint
+        else -> Bk.Dim
+    }
+    val statusText = when {
+        nfcAvailability == NfcAvailability.UNSUPPORTED -> "NO RADIO"
+        nfcAvailability == NfcAvailability.DISABLED -> "NFC OFF"
+        rejected -> "DENIED"
+        failed -> "ERROR"
+        scanning -> "SCANNING"
+        writing || verifying || busy -> "VERIFY"
+        activeKey == null -> "NO KEY"
+        paired -> "NFC READY"
+        else -> "PAIR FIRST"
+    }
+    val primaryText = when {
+        nfcAvailability == NfcAvailability.UNSUPPORTED -> "NFC 不可用"
+        nfcAvailability == NfcAvailability.DISABLED -> "前往系统设置"
+        scanning -> "正在扫描…"
+        writing -> "正在写入卡片…"
+        verifying || busy -> "正在验证卡片…"
+        rejected || failed -> if (activeKey == null) "重新绑定 NFC 钥匙" else "重新贴卡"
+        activeKey == null -> "绑定 NFC 钥匙"
+        !paired -> "先配对电脑"
+        else -> "开始贴卡解锁"
+    }
+    val primaryBusy = scanning || writing || verifying || busy
+    val primaryEnabled = when {
+        nfcAvailability == NfcAvailability.UNSUPPORTED -> false
+        primaryBusy -> false
+        nfcAvailability == NfcAvailability.DISABLED -> true
+        else -> true
+    }
+    val primaryAction = when {
+        nfcAvailability == NfcAvailability.DISABLED -> onOpenNfcSettings
+        rejected || failed -> if (activeKey == null) onBindNfc else onScanNfc
+        scanning || writing || verifying || busy -> ({})
+        activeKey == null -> onBindNfc
+        !paired -> onPair
+        else -> onScanNfc
+    }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val dialSize = minOf(maxWidth * 0.64f, 228.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp)
+        ) {
+            Spacer(Modifier.height(12.dp))
+            BrandHeader(
+                statusText = statusText,
+                tone = tone,
+                pulsing = scanning || writing || verifying || busy
+            )
+            Spacer(Modifier.height(12.dp))
+            SegmentedControl(
+                options = listOf("蓝牙 LE", "NFC 钥匙"),
+                selectedIndex = 1,
+                onSelect = { index -> if (index == 0) onChannelChange("phone") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    text = "${greeting()}，${deviceName.ifBlank { "我的手机" }}",
+                    color = Bk.Muted,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.4.sp
+                )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    text = heading,
+                    color = Bk.Text,
+                    fontSize = 27.sp,
+                    lineHeight = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.1.sp
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = subtitle,
+                    color = Bk.Muted,
+                    fontSize = 11.sp,
+                    lineHeight = 17.sp
+                )
+
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    NfcTapDial(
+                        state = dialState,
+                        statusLabel = dialLabel,
+                        modifier = Modifier.size(dialSize)
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+
+                StatusRail(
+                    items = listOf(
+                        RailItem(
+                            label = "NFC 读取器",
+                            value = when (nfcAvailability) {
+                                NfcAvailability.READY ->
+                                    if (scanning) "正在扫描" else "已启用"
+                                NfcAvailability.DISABLED -> "已关闭"
+                                NfcAvailability.UNSUPPORTED -> "不可用"
+                            },
+                            meta = "NFC READER",
+                            tone = when (nfcAvailability) {
+                                NfcAvailability.READY ->
+                                    if (scanning) Bk.Amber else Bk.Mint
+                                NfcAvailability.DISABLED -> Bk.Amber
+                                NfcAvailability.UNSUPPORTED -> Bk.Coral
+                            },
+                            pulsing = scanning
+                        ),
+                        RailItem(
+                            label = "NFC 钥匙",
+                            value = activeKey?.hint ?: "未绑定",
+                            meta = activeKey?.name ?: "等待绑定",
+                            tone = when {
+                                rejected || failed -> Bk.Coral
+                                activeKey != null -> Bk.Iris
+                                else -> Bk.Dim
+                            }
+                        ),
+                        RailItem(
+                            label = "Windows 凭据",
+                            value = if (credentialReady) "已保存" else "待确认",
+                            meta = "仅存于电脑",
+                            tone = if (credentialReady) Bk.Mint else Bk.Amber,
+                            pulsing = !credentialReady
+                        )
+                    )
+                )
+
+                Spacer(Modifier.height(18.dp))
+                SectionLabel(
+                    text = "NFC ACTIVITY",
+                    trailing = if (lastReceipt != null) "RECEIPT" else "LOCAL"
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = lastReceipt?.let {
+                        "上次解锁 ${formatShortTime(it.at)} · ${it.channel}"
+                    } ?: "卡片只在手机本地读取，电脑只接收签名解锁请求",
+                    color = if (lastReceipt != null) Bk.Muted else Bk.Dim,
+                    fontSize = 10.sp,
+                    lineHeight = 15.sp
+                )
+                Spacer(Modifier.height(12.dp))
+                if (nfcNotice.isNotBlank()) {
+                    StatusNote(
+                        text = nfcNotice,
+                        tone = when {
+                            rejected || failed -> Bk.Coral
+                            scanning || writing || verifying || busy -> Bk.Amber
+                            activeKey != null -> Bk.Mint
+                            else -> Bk.Muted
+                        },
+                        glyph = when {
+                            rejected || failed -> BkGlyph.ALERT
+                            activeKey != null -> BkGlyph.SHIELD
+                            else -> BkGlyph.NFC
+                        }
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+
+            PrimaryAction(
+                text = primaryText,
+                secondaryText = when {
+                    nfcAvailability == NfcAvailability.UNSUPPORTED -> "当前设备没有 NFC 读卡硬件"
+                    nfcAvailability == NfcAvailability.DISABLED -> "开启 NFC 后返回重试"
+                    scanning -> "把卡片贴近手机背面"
+                    writing -> "请保持卡片贴近手机"
+                    verifying || busy -> "正在核对钥匙身份"
+                    rejected || failed -> "重新读取并验证卡片"
+                    activeKey == null -> "卡片只保存随机身份令牌"
+                    !paired -> "安全绑定本机密钥"
+                    else -> activeKey.hint
+                },
+                enabled = primaryEnabled,
+                busy = primaryBusy,
+                glyph = if (activeKey == null) BkGlyph.NFC else BkGlyph.LOCK,
+                tone = if (rejected || failed) Bk.Coral else Bk.Mint,
+                onClick = primaryAction,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            SecondaryAction(
+                text = when {
+                    nfcAvailability == NfcAvailability.DISABLED -> "重新检测 NFC"
+                    nfcAvailability == NfcAvailability.UNSUPPORTED -> "返回蓝牙解锁"
+                    scanning -> "取消扫描"
+                    rejected -> "继续使用蓝牙"
+                    activeKey == null -> "继续使用蓝牙"
+                    else -> "继续使用蓝牙"
+                },
+                onClick = when {
+                    nfcAvailability == NfcAvailability.DISABLED -> onRefreshNfc
+                    nfcAvailability == NfcAvailability.UNSUPPORTED -> ({ onChannelChange("phone") })
+                    scanning -> onCancelNfc
+                    rejected -> ({ onChannelChange("phone") })
+                    else -> ({ onChannelChange("phone") })
+                },
+                enabled = !primaryBusy || scanning,
+                tone = if (scanning) Bk.Amber else Bk.Muted,
+                glyph = when {
+                    nfcAvailability == NfcAvailability.DISABLED -> BkGlyph.REFRESH
+                    scanning -> BkGlyph.CLOSE
+                    rejected -> BkGlyph.BLUETOOTH
+                    else -> BkGlyph.BLUETOOTH
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            StatusNote(
+                text = status,
+                tone = if (status.contains("失败") || status.contains("错误")) Bk.Coral else Bk.Dim
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+    }
+}
+
+@Composable
 private fun DevicesScreen(
     deviceName: String,
     deviceId: String,
     pairedAt: Long,
     busy: Boolean,
+    nfcAvailability: NfcAvailability,
+    nfcKeys: List<NfcKeyRecord>,
     onPair: () -> Unit,
-    onRequestUnpair: () -> Unit
+    onRequestUnpair: () -> Unit,
+    onBindNfc: () -> Unit,
+    onRenameNfc: (NfcKeyRecord) -> Unit,
+    onDeleteNfc: (NfcKeyRecord) -> Unit
 ) {
     val paired = deviceId.isNotEmpty()
     Column(
@@ -900,6 +1730,94 @@ private fun DevicesScreen(
             }
 
             Spacer(Modifier.height(14.dp))
+            SectionLabel(
+                text = "NFC KEYS",
+                trailing = "${nfcKeys.size}/${NfcKeyStore.MAX_KEYS}"
+            )
+            Spacer(Modifier.height(8.dp))
+            if (nfcKeys.isEmpty()) {
+                TechCard(modifier = Modifier.fillMaxWidth(), padding = 16.dp) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        GlyphBadge(
+                            glyph = BkGlyph.NFC,
+                            tone = Bk.Iris,
+                            size = 42.dp
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "还没有 NFC 钥匙",
+                                color = Bk.Text,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                text = "卡片只保存随机令牌，原文不会离开手机。",
+                                color = Bk.Muted,
+                                fontSize = 9.sp,
+                                lineHeight = 14.sp
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    SecondaryAction(
+                        text = "绑定 NFC 钥匙",
+                        onClick = onBindNfc,
+                        enabled = !busy && nfcAvailability != NfcAvailability.UNSUPPORTED,
+                        tone = Bk.Iris,
+                        glyph = BkGlyph.NFC,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            } else {
+                nfcKeys.forEachIndexed { index, record ->
+                    if (index > 0) {
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    NfcKeyRow(
+                        record = record,
+                        onRename = { onRenameNfc(record) },
+                        onDelete = { onDeleteNfc(record) }
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                SecondaryAction(
+                    text = if (nfcKeys.size >= NfcKeyStore.MAX_KEYS) {
+                        "已达 ${NfcKeyStore.MAX_KEYS} 张上限"
+                    } else {
+                        "添加另一张 NFC 钥匙"
+                    },
+                    onClick = onBindNfc,
+                    enabled = !busy &&
+                        nfcKeys.size < NfcKeyStore.MAX_KEYS &&
+                        nfcAvailability != NfcAvailability.UNSUPPORTED,
+                    tone = Bk.Iris,
+                    glyph = BkGlyph.PLUS,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            StatusNote(
+                text = when (nfcAvailability) {
+                    NfcAvailability.READY -> "NFC 由手机读取；电脑只接收已签名的解锁请求。"
+                    NfcAvailability.DISABLED -> "系统 NFC 已关闭，绑定前需要先开启。"
+                    NfcAvailability.UNSUPPORTED -> "当前手机没有 NFC 读卡硬件。"
+                },
+                tone = when (nfcAvailability) {
+                    NfcAvailability.READY -> Bk.Dim
+                    NfcAvailability.DISABLED -> Bk.Amber
+                    NfcAvailability.UNSUPPORTED -> Bk.Coral
+                },
+                glyph = when (nfcAvailability) {
+                    NfcAvailability.READY -> BkGlyph.SHIELD
+                    else -> BkGlyph.ALERT
+                }
+            )
+
+            Spacer(Modifier.height(18.dp))
+            SectionLabel(text = "DEVICE DETAILS", trailing = "LOCAL")
+            Spacer(Modifier.height(10.dp))
             if (paired) {
                 DeviceRow(
                     name = deviceName.ifBlank { "我的手机" },
@@ -993,6 +1911,71 @@ private fun DevicesScreen(
                 }
             }
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun NfcKeyRow(
+    record: NfcKeyRecord,
+    onRename: () -> Unit,
+    onDelete: () -> Unit
+) {
+    TechCard(modifier = Modifier.fillMaxWidth(), padding = 14.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            GlyphBadge(
+                glyph = BkGlyph.NFC,
+                tone = Bk.Iris,
+                size = 40.dp
+            )
+            Spacer(Modifier.width(11.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = record.name,
+                    color = Bk.Text,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = record.hint,
+                    color = Bk.Mint,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 0.5.sp
+                )
+            }
+            IconAction(
+                glyph = BkGlyph.KEY,
+                onClick = onRename,
+                tint = Bk.Muted
+            )
+            Spacer(Modifier.width(6.dp))
+            IconAction(
+                glyph = BkGlyph.TRASH,
+                onClick = onDelete,
+                tint = Bk.Coral
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = if (record.lastUsedAt > 0) {
+                    "最近使用 ${formatShortTime(record.lastUsedAt)}"
+                } else {
+                    "尚未使用"
+                },
+                color = Bk.Muted,
+                fontSize = 9.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "TOKEN SHA-256",
+                color = Bk.Dim,
+                fontSize = 8.sp,
+                letterSpacing = 0.8.sp
+            )
         }
     }
 }
@@ -1701,6 +2684,168 @@ private fun ConfirmUnpairOverlay(
                 PrimaryAction(
                     text = "解除",
                     enabled = !busy,
+                    tone = Bk.Coral,
+                    glyph = BkGlyph.TRASH,
+                    onClick = onConfirm,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NfcKeyNameOverlay(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.76f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onCancel
+                )
+        )
+        TechCard(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 22.dp),
+            padding = 20.dp
+        ) {
+            GlyphBadge(
+                glyph = BkGlyph.NFC,
+                tone = Bk.Iris,
+                size = 52.dp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+            Spacer(Modifier.height(15.dp))
+            Text(
+                text = "重命名 NFC 钥匙",
+                color = Bk.Text,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "名称只保存在本机，用于区分不同的实体卡。",
+                color = Bk.Muted,
+                fontSize = 10.sp,
+                lineHeight = 16.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(16.dp))
+            TechTextField(
+                value = value,
+                onValueChange = onValueChange,
+                label = "钥匙名称",
+                placeholder = "例如：工牌卡",
+                trailingText = "${value.length}/32",
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(18.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SecondaryAction(
+                    text = "取消",
+                    onClick = onCancel,
+                    tone = Bk.Muted,
+                    modifier = Modifier.weight(1f)
+                )
+                PrimaryAction(
+                    text = "保存",
+                    enabled = value.trim().isNotEmpty(),
+                    glyph = BkGlyph.CHECK,
+                    onClick = onConfirm,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NfcKeyDeleteOverlay(
+    record: NfcKeyRecord,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.76f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onCancel
+                )
+        )
+        TechCard(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 22.dp),
+            padding = 20.dp
+        ) {
+            GlyphBadge(
+                glyph = BkGlyph.TRASH,
+                tone = Bk.Coral,
+                size = 54.dp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "移除这张 NFC 钥匙？",
+                color = Bk.Text,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(7.dp))
+            Text(
+                text = "${record.name} · ${record.hint}",
+                color = Bk.Iris,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(9.dp))
+            Text(
+                text = "移除后这张卡将无法触发本机解锁。卡片内的随机令牌不会被清除，可重新绑定。",
+                color = Bk.Muted,
+                fontSize = 10.sp,
+                lineHeight = 16.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(18.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SecondaryAction(
+                    text = "取消",
+                    onClick = onCancel,
+                    tone = Bk.Muted,
+                    modifier = Modifier.weight(1f)
+                )
+                PrimaryAction(
+                    text = "移除",
+                    enabled = true,
                     tone = Bk.Coral,
                     glyph = BkGlyph.TRASH,
                     onClick = onConfirm,

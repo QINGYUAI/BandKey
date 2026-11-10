@@ -1,6 +1,6 @@
 # BandKey（电脑钥匙）
 
-用手机、手环或 NFC 卡解锁 Windows 电脑。本仓库是完整自研实现，包含 Android 端、Windows 服务、Windows 凭据提供程序（Credential Provider）、蓝牙/局域网通道、托盘程序和安装脚本。
+用手机、手环或手机贴 NFC 卡解锁 Windows 电脑。本仓库是完整自研实现，包含 Android 端、Windows 服务、Windows 凭据提供程序（Credential Provider）、蓝牙/局域网通道、托盘程序和安装脚本。
 
 ## 目录结构
 
@@ -30,7 +30,7 @@ bandkey/
 | 托盘 | .NET 8 WinForms，自绘暗色科技风控件与菜单 |
 | Credential Provider | C++17 + WinSDK COM，接入 Winlogon 锁屏 |
 | 手机 ↔ 电脑 | WebSocket / BLE GATT / LAN TCP，统一 JSON + ECDSA 签名 |
-| Android | Kotlin + Jetpack Compose + OkHttp + Keystore |
+| Android | Kotlin + Jetpack Compose + OkHttp + Keystore + NFC Reader Mode |
 | 打包 | Inno Setup + 自包含单文件发布 |
 
 核心安全设计：
@@ -39,6 +39,7 @@ bandkey/
 - 配对 PIN 只在电脑托盘显示，手机输入确认，PIN 不通过网络回传。
 - Windows 密码只在托盘通过受保护管道提交，服务二次验证后用 DPAPI `LocalMachine` 加密保存。
 - 凭据提供程序运行在 SYSTEM / Winlogon 上下文，只读取本机凭据文件，不直接联网。
+- NFC 卡片只保存随机身份令牌，手机本地匹配后用现有 ECDSA 私钥签名；卡片不包含 Windows 密码、手机私钥或原始 UID。
 
 ## 快速开始（Windows）
 
@@ -146,6 +147,25 @@ python tools\lan_smoke_test.py
 
 Android 在「蓝牙」模式下先尝试 BLE；BLE 失败后自动尝试 LAN（优先使用已填写的服务地址主机，否则 UDP 发现）。「WiFi」模式直接走 WebSocket。
 
+## NFC 解锁
+
+NFC 是手机端的本地身份验证入口，不新增网络协议，也不要求电脑具备 NFC 读卡器：
+
+```text
+手机贴卡 -> Reader Mode 读取随机令牌 -> 手机本地匹配 SHA-256 指纹
+         -> 使用已配对私钥签名 unlock 请求 -> BLE / LAN 发送
+         -> Windows 验签并解锁 -> 双端展示最近 NFC 验证状态
+```
+
+- 卡片写入 `bandkey:v1:<43 字符 URL-safe Base64>`，内容为 32 字节随机令牌，不写入账户、密码、私钥或卡片 UID。
+- 绑定只接受空白卡、可格式化卡或已有的 BandKey 卡；检测到其他 NDEF 数据时会拒绝覆盖。
+- 手机最多保存 3 张钥匙，只持久化令牌 SHA-256 与展示指纹；记录由 Android Keystore 的 AES-256-GCM 加密。
+- 已绑定卡贴卡后自动发起解锁；未授权卡只在手机本地拒绝，不会生成 Windows 解锁请求。
+- 实体卡属于持有型凭据，仍可能被复制；请像保管钥匙一样保管卡片，丢失后立即在手机端删除对应钥匙并重新绑定新卡。
+- 解锁请求附带 `method=nfc` 与 `keyHint=BK-NFC ··· XXXX`，电脑仅用于展示最近验证方式，授权仍只依赖 ECDSA 验签。
+- Windows 控制中心显示最近一次成功投递的钥匙指纹和时间，不展示或管理手机端钥匙列表。
+- 服务重启会清空最近 NFC 展示状态；钥匙本身仍保存在手机端。
+
 ## 托盘与本地 API
 
 托盘以普通用户权限运行，通过 `127.0.0.1:23234` 的仅回环 API 与系统服务交互：
@@ -153,7 +173,7 @@ Android 在「蓝牙」模式下先尝试 BLE；BLE 失败后自动尝试 LAN（
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | GET | `/health` | 服务存活检查（托盘每 2 秒轮询） |
-| GET | `/status` | 就绪、凭据、CP、LAN 监听状态 |
+| GET | `/status` | 就绪、凭据、CP、LAN 监听及最近 NFC 验证状态 |
 | GET | `/pairing` | 当前待确认配对请求；无请求返回 204 |
 | GET | `/devices` | 已配对设备列表 |
 | DELETE | `/devices/{id}` | 删除设备 |
@@ -163,6 +183,7 @@ Android 在「蓝牙」模式下先尝试 BLE；BLE 失败后自动尝试 LAN（
 托盘 UI 已统一为“信任仪表”暗色科技风：
 
 - 双击托盘打开一屏式控制中心，展示服务、蓝牙、已配对设备与凭据状态。
+- NFC 状态条显示最近一次手机本地验签通过的钥匙指纹与时间；等待状态下明确提示 NFC 由手机读取。
 - 三段信任环、状态胶囊、指标卡和动作网格均使用自绘控件，薄荷绿表示就绪，紫色表示身份，橙色表示等待，红色表示错误。
 - 配对请求使用大号 PIN、设备身份卡和连续倒计时；最后 60 秒转为橙色，过期转为红色。
 - 设备列表使用深色 OwnerDraw ListView、等宽设备 ID、左侧信号条选中态和授权数量胶囊。

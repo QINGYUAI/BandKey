@@ -1058,6 +1058,7 @@ internal sealed class TechPinDisplay : Control
 internal enum TechActionGlyph
 {
     Key,
+    Nfc,
     Devices,
     Lock,
     Refresh,
@@ -1291,6 +1292,14 @@ internal sealed class TechActionButton : Button
 
         switch (Glyph)
         {
+            case TechActionGlyph.Nfc:
+                using (var dot = new SolidBrush(color))
+                {
+                    graphics.FillEllipse(dot, x, y - 2, 4, 4);
+                }
+                graphics.DrawArc(pen, x + 2, y - 7, 8, 14, -58, 116);
+                graphics.DrawArc(pen, x + 4, y - 11, 14, 22, -58, 116);
+                break;
             case TechActionGlyph.Devices:
                 graphics.DrawRoundedRectangleSafe(pen, x + 1, y - 7, 18, 13, 2.5f);
                 graphics.DrawLine(pen, x + 7, y + 6, x + 7, y + 9);

@@ -97,6 +97,7 @@ public static class MessageRouter
                         return Error("unlock_not_ready", "当前没有可用于自动解锁的已配对设备或凭据");
                     }
 
+                    context.Activity.Record(request);
                     return Ok(MessageTypes.UnlockResult, new UnlockResultResponse(true, null, requestId));
                 }
 
@@ -139,4 +140,5 @@ public sealed record RouterContext(
     AutoUnlockState AutoUnlock,
     PipeServer Pipes,
     CredentialStore Credentials,
+    UnlockActivityState Activity,
     bool DevMode);

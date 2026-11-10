@@ -3,10 +3,14 @@
 ## 文件
 
 - `design-board.html`：完整设计板，可直接在浏览器中打开。
+- `nfc-unlock.html`：NFC 轻触解锁双端状态设计板，支持 `?view=` 导出单个界面。
 - `shots/hero.png`：Android 主页面、配对、设备列表。
 - `shots/phones.png`：设置、错误恢复、解锁成功。
 - `shots/desktop.png`：Windows 托盘控制中心、配对弹窗、锁屏凭据卡片、设备窗口、凭据窗口。
 - `shots/tokens.png`：色彩、字阶、间距、动效与改版分析。
+- `shots/nfc-unlock.png`：NFC 解锁完整设计板。
+- `shots/nfc-android.png`：Android NFC 六种状态总览。
+- `shots/nfc-windows.png`：Windows NFC 状态与控制中心总览。
 
 ## 设计方向：信任仪表（Trust Instrument）
 
@@ -139,3 +143,64 @@ Windows 验收截图：
 - `verify/windows-pairing.png`：配对 PIN 弹窗（预览数据）
 - `verify/windows-credential.png`：Windows 解锁凭据弹窗
 - `verify/windows-devices.png`：已授权设备窗口（预览数据）
+
+## NFC 解锁（v1.7.0）
+
+> v1.7.0 已接入真实 NFC 扫描、绑定、本地验签与 Windows 状态回写；电脑端仍不读取 NFC 卡片。
+
+### 设计边界
+
+- NFC 由手机读取，电脑端不依赖内置 NFC 读卡器。
+- 卡片只保存随机身份令牌，不保存 Windows 密码、手机私钥或原始 UID。
+- 手机完成读卡与本地验签后，继续复用现有 BLE / 局域网签名解锁链路。
+- Windows 只展示钥匙指纹、最近使用时间和验证结果，不伪装成本机读卡。
+- 所有状态同时使用颜色、图标和文案，不依赖单一颜色区分。
+
+### Android 状态
+
+| 状态 | 主文案 | 主行动 |
+| --- | --- | --- |
+| 未绑定 | 还没有 NFC 钥匙 | 绑定 NFC 钥匙 / 继续使用蓝牙 |
+| 等待贴卡 | 贴卡解锁 | 取消扫描 |
+| 正在验证 | 正在验证卡片 | 验证中不可重复提交 |
+| 解锁成功 | NFC 已解锁 | 完成 / 查看回执 |
+| 未授权卡 | 这张卡尚未绑定 | 绑定此卡 / 重新贴卡 |
+| 硬件不支持 | 这台手机不支持 NFC | 返回蓝牙解锁 |
+
+### Windows 视图
+
+| 视图 | 目标 |
+| --- | --- |
+| 控制中心 | 在保持三列遥测结构的前提下，增加 NFC 钥匙状态条与入口 |
+| NFC 状态说明 | 展示最近验证指纹和时间，并说明钥匙列表、绑定与删除均由手机管理 |
+| 锁屏状态卡 | 锁屏仍使用凭据提供程序现有状态文案；未新增电脑端 NFC 专用卡片 |
+
+### 视觉与动效
+
+- 继续沿用薄荷绿 `#63F2CF`、身份紫 `#8C7BFF`、等待橙 `#FFB86B`、错误红 `#FF6B81`。
+- 贴卡页使用三轮扩散涟漪，只有等待贴卡时循环播放。
+- 验证页改为单条细进度线和扫弧，不使用频繁闪烁。
+- 成功页外环 650ms 描边一次，随后保持静止。
+- 遵循系统“移除动画”设置，关闭循环波纹、旋转和按压动效。
+
+### NFC 设计截图
+
+- `shots/nfc-unbound.png`：Android 未绑定
+- `shots/nfc-waiting.png`：Android 等待贴卡
+- `shots/nfc-verifying.png`：Android 本机验签
+- `shots/nfc-success.png`：Android 解锁成功
+- `shots/nfc-rejected.png`：Android 未授权卡
+- `shots/nfc-unsupported.png`：Android 硬件不支持
+- `shots/nfc-windows-control.png`：Windows 控制中心
+- `shots/nfc-windows-keys.png`：Windows NFC 钥匙管理参考稿（未落地，实际由手机管理）
+- `shots/nfc-windows-lock.png`：Windows 锁屏 NFC 状态卡参考稿（未落地）
+
+### 落地结果（v1.7.0）
+
+1. Android 前台 Reader Mode 已启用，支持 NFC A/B/F/V，并在生命周期切换时启动或停止扫描。
+2. NFC 钥匙使用随机令牌、SHA-256 指纹和 Android Keystore 加密记录；支持最多 3 张钥匙、重命名和删除。
+3. 贴卡成功后在手机本地匹配令牌，再复用现有 ECDSA 签名解锁链路；新增 `method` 与 `keyHint` 展示字段。
+4. Windows `/status` 返回 `lastUnlockMethod`、`nfcKeyHint`、`nfcLastUsedAt`；控制中心新增 NFC 状态条和手机端管理说明。
+5. 控制中心调整为 560×780，日志入口移到页脚，避免继续压缩遥测和操作区。
+
+仍需真机验证：贴卡距离、读取时长、不同卡类型、NFC 关闭、手机无 NFC 硬件、App 重启后钥匙持久化，以及系统动画关闭场景。

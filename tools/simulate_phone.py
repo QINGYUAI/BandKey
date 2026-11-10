@@ -61,6 +61,7 @@ async def main() -> None:
     ap.add_argument("--keyfile", default="phone_key.pem")
     ap.add_argument("--pin", default=None, help="配对 PIN（显示在 PC 端，由用户输入）")
     ap.add_argument("--replay", action="store_true", help="重复发送同一 nonce，验证防重放")
+    ap.add_argument("--nfc", action="store_true", help="模拟手机本地 NFC 验签后的解锁请求")
     args = ap.parse_args()
 
     key = load_or_create_key(args.keyfile)
@@ -92,14 +93,19 @@ async def main() -> None:
         data = f"unlock:{device_id}:{nonce}:{timestamp}".encode()
         signature = sign_p1363(key, data)
 
+        payload = {
+            "deviceId": device_id,
+            "nonce": nonce,
+            "timestamp": timestamp,
+            "signature": signature,
+            "method": "nfc" if args.nfc else "phone",
+        }
+        if args.nfc:
+            payload["keyHint"] = "BK-NFC \u00b7\u00b7\u00b7 8F2A"
+
         await ws.send(json.dumps({
             "type": "unlock",
-            "payload": {
-                "deviceId": device_id,
-                "nonce": nonce,
-                "timestamp": timestamp,
-                "signature": signature,
-            },
+            "payload": payload,
         }))
         result = json.loads(await ws.recv())
         print("unlock_result:", json.dumps(result, ensure_ascii=False))
@@ -107,12 +113,7 @@ async def main() -> None:
         if args.replay:
             await ws.send(json.dumps({
                 "type": "unlock",
-                "payload": {
-                    "deviceId": device_id,
-                    "nonce": nonce,
-                    "timestamp": timestamp,
-                    "signature": signature,
-                },
+                "payload": payload,
             }))
             replayed = json.loads(await ws.recv())
             print("replay_result:", json.dumps(replayed, ensure_ascii=False))

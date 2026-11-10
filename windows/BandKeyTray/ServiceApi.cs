@@ -18,6 +18,9 @@ internal sealed record ServiceStatus(
     bool LanUdpListening,
     int LanTcpPort,
     int LanUdpPort,
+    string? LastUnlockMethod,
+    string? NfcKeyHint,
+    long? NfcLastUsedAt,
     bool DevMode);
 
 internal sealed class ServiceApi

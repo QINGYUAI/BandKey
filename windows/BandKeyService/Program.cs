@@ -18,7 +18,16 @@ var autoUnlock = new AutoUnlockState(() =>
 var pipes = new PipeServer(autoUnlock, credentials, options.DevMode);
 pipes.Start();
 
-var router = new RouterContext(store, pairing, verifier, autoUnlock, pipes, credentials, options.DevMode);
+var activity = new UnlockActivityState();
+var router = new RouterContext(
+    store,
+    pairing,
+    verifier,
+    autoUnlock,
+    pipes,
+    credentials,
+    activity,
+    options.DevMode);
 var lan = new LanListener(router);
 lan.Start();
 
@@ -56,8 +65,15 @@ app.UseWebSockets();
 
 app.MapGet("/health", () => Results.Text("ok"));
 
-app.MapGet("/status", (HttpContext context) => IsLoopback(context)
-    ? Results.Json(new
+app.MapGet("/status", (HttpContext context) =>
+{
+    if (!IsLoopback(context))
+    {
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+
+    var recent = activity.Snapshot();
+    return Results.Json(new
     {
         ready = autoUnlock.UnlockReady,
         credentialSet = credentials.IsUsable,
@@ -68,9 +84,12 @@ app.MapGet("/status", (HttpContext context) => IsLoopback(context)
         lanUdpListening = lan.UdpListening,
         lanTcpPort = LanListener.TcpPort,
         lanUdpPort = LanListener.UdpPort,
+        lastUnlockMethod = recent.LastUnlockMethod,
+        nfcKeyHint = recent.NfcKeyHint,
+        nfcLastUsedAt = recent.NfcLastUsedAt,
         devMode = options.DevMode
-    })
-    : Results.StatusCode(StatusCodes.Status403Forbidden));
+    });
+});
 
 app.MapGet("/pairing", (HttpContext context) =>
 {

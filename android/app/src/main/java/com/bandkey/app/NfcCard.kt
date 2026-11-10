@@ -22,6 +22,10 @@ object NfcCard {
             ndef.connect()
             try {
                 if (!ndef.isWritable || ndef.maxSize < message.toByteArray().size) return false
+                val existing = ndef.ndefMessage ?: ndef.cachedNdefMessage
+                if (existing != null && existing.records.any { !isBandKeyRecord(it) }) {
+                    return false
+                }
                 ndef.writeNdefMessage(message)
                 return true
             } finally {
@@ -48,7 +52,7 @@ object NfcCard {
         try {
             val message = ndef.ndefMessage ?: ndef.cachedNdefMessage ?: return null
             for (record in message.records) {
-                if (record.tnf == NdefRecord.TNF_EXTERNAL_TYPE && record.type.contentEquals(externalType)) {
+                if (isBandKeyRecord(record)) {
                     return String(record.payload, Charsets.UTF_8)
                 }
             }
@@ -57,4 +61,7 @@ object NfcCard {
         }
         return null
     }
+
+    private fun isBandKeyRecord(record: NdefRecord): Boolean =
+        record.tnf == NdefRecord.TNF_EXTERNAL_TYPE && record.type.contentEquals(externalType)
 }

@@ -85,10 +85,17 @@ unlock:<deviceId>:<nonce>:<timestamp>
     "deviceId": "…",
     "nonce": "随机串",
     "timestamp": 1730000000,
-    "signature": "<base64 P1363>"
+    "signature": "<base64 P1363>",
+    "method": "nfc",
+    "keyHint": "BK-NFC ··· 8F2A"
   }
 }
 ```
+
+- `method` 可选，值为 `phone` 或 `nfc`；缺省按 `phone` 处理。
+- `keyHint` 可选，仅在手机本地 NFC 验签成功后附带，格式为 `BK-NFC ··· XXXX`。
+- 两者只用于电脑端展示最近解锁方式，不参与授权。Windows 仍只信任 `signature`、`nonce` 与 `timestamp` 的校验结果。
+- NFC 由手机读取卡片并在手机本地匹配令牌，电脑不需要 NFC 读卡器；签名原文不包含 `method` 或 `keyHint`。
 
 服务端验签通过、凭据可用且凭据提供程序已连接时，返回：
 
@@ -100,6 +107,29 @@ unlock:<deviceId>:<nonce>:<timestamp>
 ```
 
 `requestId` 单调递增，用于服务端与凭据提供程序之间的投递确认。
+
+## 托盘状态接口
+
+仅允许回环访问的 `GET /status` 返回最近一次成功投递的解锁摘要：
+
+```json
+{
+  "ready": true,
+  "credentialSet": true,
+  "pairedCount": 1,
+  "lastUnlockMethod": "nfc",
+  "nfcKeyHint": "BK-NFC ··· 8F2A",
+  "nfcLastUsedAt": 1762777890123
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `lastUnlockMethod` | 最近成功投递的方式：`phone` 或 `nfc` |
+| `nfcKeyHint` | 最近一次 NFC 验签通过的钥匙展示指纹 |
+| `nfcLastUsedAt` | 最近一次 NFC 成功投递的 Unix 毫秒时间 |
+
+这三个字段只保存在服务进程内存中，服务重启后清空；被拒绝、未锁定或未投递的请求不会更新它们。Windows 控制中心只展示该摘要，NFC 钥匙的绑定、重命名和删除均在手机端完成。
 
 ### 解锁时序
 

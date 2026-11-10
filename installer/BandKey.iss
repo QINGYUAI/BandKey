@@ -6,12 +6,12 @@
 
 [Setup]
 AppName=电脑钥匙
-AppVersion=1.6.0
+AppVersion=1.7.0
 AppPublisher=科技包
 DefaultDirName={autopf}\BandKey
 DefaultGroupName=电脑钥匙
 DisableProgramGroupPage=yes
-OutputBaseFilename=BandKey-1.6.0-windows-x64
+OutputBaseFilename=BandKey-1.7.0-windows-x64
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64os

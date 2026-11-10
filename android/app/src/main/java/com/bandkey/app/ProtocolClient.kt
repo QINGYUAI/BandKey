@@ -82,18 +82,28 @@ class ProtocolClient(private val transport: Transport) : Closeable {
         return success.getJSONObject("payload").getString("deviceId")
     }
 
-    suspend fun unlock(keyPair: KeyPair, deviceId: String): JSONObject {
+    suspend fun unlock(
+        keyPair: KeyPair,
+        deviceId: String,
+        method: String = "phone",
+        keyHint: String? = null
+    ): JSONObject {
         val nonce = UUID.randomUUID().toString().replace("-", "")
         val timestamp = System.currentTimeMillis() / 1000
         val data = "unlock:$deviceId:$nonce:$timestamp".toByteArray(Charsets.UTF_8)
         val signature = Crypto.signUnlockBase64(keyPair, data)
+        val payload = JSONObject()
+            .put("deviceId", deviceId)
+            .put("nonce", nonce)
+            .put("timestamp", timestamp)
+            .put("signature", signature)
+            .put("method", method)
+        if (!keyHint.isNullOrBlank()) {
+            payload.put("keyHint", keyHint)
+        }
         return request(
             "unlock_result", "unlock",
-            JSONObject()
-                .put("deviceId", deviceId)
-                .put("nonce", nonce)
-                .put("timestamp", timestamp)
-                .put("signature", signature)
+            payload
         )
     }
 
