@@ -1,6 +1,6 @@
 # BandKey 文档
 
-本文档适用于 BandKey `1.8.4`。如果你只想安装和使用，先阅读
+本文档适用于 BandKey `1.8.5`。如果你只想安装和使用，先阅读
 [快速开始](getting-started.md)；需要改代码或发布版本时，再阅读
 [开发与发布](development.md)。
 
@@ -48,7 +48,7 @@ docs/
 
 ## 文档约定
 
-- 版本号以 `installer\BandKey.iss` 的 `AppVersion` 为准，当前为 `1.8.4`。
+- 版本号以 `installer\BandKey.iss` 的 `AppVersion` 为准，当前为 `1.8.5`。
 - Windows 路径默认使用反斜杠，命令默认在 PowerShell 中执行。
 - “电脑端”指 Windows 服务、托盘和凭据提供程序的组合，不单指某一个进程。
 - NFC 自动解锁属于 Android 系统分发能力，受手机厂商策略影响；文档会明确区分“已实现”和“已验证范围”。

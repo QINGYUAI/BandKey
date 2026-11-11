@@ -1,6 +1,6 @@
 # BandKey 通信协议 v2
 
-> 适用版本：`1.8.4` · [文档索引](README.md) · [系统架构](architecture.md) ·
+> 适用版本：`1.8.5` · [文档索引](README.md) · [系统架构](architecture.md) ·
 > [安全模型](security.md)
 
 手机（Android）与 Windows 服务（`BandKeyService`）之间使用同一套 JSON 消息与签名

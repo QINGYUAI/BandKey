@@ -4,7 +4,7 @@
 Android 客户端、Windows 服务、Winlogon 凭据提供程序、BLE/局域网通道、托盘程序和
 安装脚本。
 
-> 当前版本：`1.8.4` · [下载最新版](https://github.com/QINGYUAI/BandKey/releases/latest) ·
+> 当前版本：`1.8.5` · [下载最新版](https://github.com/QINGYUAI/BandKey/releases/latest) ·
 > [快速开始](docs/getting-started.md) · [文档索引](docs/README.md)
 
 ## 功能
@@ -193,9 +193,9 @@ dist\latest\BandKey.apk
 ## 版本状态
 
 - 协议版本：v2
-- Android：`1.8.4` / `versionCode 11`
-- Windows Service / Tray：`1.8.4`
-- 最新 Release：[v1.8.4](https://github.com/QINGYUAI/BandKey/releases/tag/v1.8.4)
+- Android：`1.8.5` / `versionCode 12`
+- Windows Service / Tray：`1.8.5`
+- 最新 Release：[v1.8.5](https://github.com/QINGYUAI/BandKey/releases/tag/v1.8.5)
 
 已知待完善：真实 Winlogon 全链路回归、证书登录、心跳与连接状态可视化、安装包体积
 优化。
