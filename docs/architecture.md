@@ -128,8 +128,9 @@ accepted → submitted → succeeded
 
 | 命令 | 用途 |
 | --- | --- |
-| `GET_STATUS` | 就绪、凭据、CP、LAN 监听和最近 NFC 验证状态 |
-| `GET_PAIRING` | 当前待确认配对请求 |
+| `GET_SNAPSHOT` | 一次返回状态与当前配对请求，托盘轮询首选 |
+| `GET_STATUS` | 就绪、凭据、CP、LAN 监听和最近 NFC 验证状态（兼容命令） |
+| `GET_PAIRING` | 当前待确认配对请求（兼容命令） |
 | `LIST_DEVICES` | 已配对设备列表 |
 | `DELETE_DEVICE` | 删除指定设备 |
 | `SAVE_CREDENTIAL` | 校验并保存当前用户的 Windows 登录凭据 |

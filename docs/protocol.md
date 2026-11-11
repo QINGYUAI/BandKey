@@ -271,6 +271,34 @@ BANDKEY_DISCOVER
 }
 ```
 
+一次读取状态和当前配对请求（托盘轮询使用，避免每次轮询建立两条管道）：
+
+```json
+{ "cmd": "GET_SNAPSHOT" }
+```
+
+```json
+{
+  "event": "SNAPSHOT",
+  "status": {
+    "event": "STATUS",
+    "ready": true,
+    "credentialSet": true,
+    "credentialRejected": false,
+    "credentialProviderConnected": true
+  },
+  "pairing": {
+    "deviceName": "我的手机",
+    "pin": "284196",
+    "createdAt": "2026-11-11T08:00:00+00:00",
+    "expiresAt": "2026-11-11T08:05:00+00:00"
+  }
+}
+```
+
+`pairing` 在没有待确认请求时为 `null`。托盘每个请求使用独立管道连接，服务端回复后
+立即关闭；不要再通过轮询 `IsConnected` 维持连接。
+
 ### BandKeyUnlock（旧版兼容）
 
 单向管道，服务在每次自动解锁请求时写入一行 `UNLOCK\n`。仅用于兼容旧版凭据提供程序；新版优先使用 `AUTO_UNLOCK` + ACK 链路。

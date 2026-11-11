@@ -71,6 +71,17 @@ try {
         throw "GET_PAIRING failed: $($pairing | ConvertTo-Json -Compress)"
     }
 
+    $snapshot = Invoke-TrayPipe $trayPipe @{ cmd = 'GET_SNAPSHOT' }
+    if ($snapshot.event -ne 'SNAPSHOT') {
+        throw "GET_SNAPSHOT failed: $($snapshot | ConvertTo-Json -Compress)"
+    }
+    if ($snapshot.status.event -ne 'STATUS' -or $snapshot.status.pairedCount -ne 0) {
+        throw "GET_SNAPSHOT status is invalid: $($snapshot | ConvertTo-Json -Compress)"
+    }
+    if ($null -ne $snapshot.pairing) {
+        throw "GET_SNAPSHOT pairing should be null: $($snapshot | ConvertTo-Json -Compress)"
+    }
+
     python $client --url "ws://127.0.0.1:$port/bandkey" --keyfile $key --pin 123456
     Start-Sleep -Milliseconds 300
 
@@ -97,6 +108,27 @@ try {
 
     $after = Invoke-TrayPipe $trayPipe @{ cmd = 'LIST_DEVICES' }
     if ($after.devices.Count -ne 0) { throw 'device list is not empty after delete' }
+
+    $devProcess = Get-CimInstance Win32_Process |
+        Where-Object {
+            $_.Name -in @('dotnet.exe', 'BandKeyService.exe') -and
+            $_.CommandLine -like '*BandKeyService.dll*' -and
+            $_.CommandLine -like "*$suffix*"
+        } |
+        Select-Object -First 1
+    if (-not $devProcess) { throw 'dev BandKeyService process not found' }
+
+    $devPid = [int]$devProcess.ProcessId
+    $beforeHandles = (Get-Process -Id $devPid).Handles
+    for ($i = 0; $i -lt 60; $i++) {
+        Invoke-TrayPipe $trayPipe @{ cmd = 'GET_SNAPSHOT' } | Out-Null
+    }
+    Start-Sleep -Milliseconds 800
+    $afterHandles = (Get-Process -Id $devPid).Handles
+    if ($afterHandles - $beforeHandles -gt 30) {
+        throw "tray pipe handle leak: before=$beforeHandles after=$afterHandles"
+    }
+    Write-Output "handle_check: before=$beforeHandles after=$afterHandles"
 
     $httpBlocked = $false
     try {

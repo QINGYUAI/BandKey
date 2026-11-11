@@ -14,7 +14,7 @@ internal sealed class TrayPopoverForm : TechForm
     private readonly Action _showCredential;
     private readonly Action _restartBle;
     private readonly Action _openLog;
-    private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = 1200 };
+    private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = 2000 };
 
     private readonly TechStatusPill _servicePill = new();
     private readonly Label _version = new();
@@ -418,22 +418,21 @@ internal sealed class TrayPopoverForm : TechForm
         _refreshing = true;
         try
         {
-            var online = await _api.IsOnlineAsync();
-            ServiceStatus? status = null;
-            PairingInfo? pairing = null;
-            if (online)
-            {
-                status = await _api.GetStatusAsync();
-                pairing = await _api.GetPairingAsync();
-            }
-
+            var snapshot = await _api.GetSnapshotAsync();
             if (IsDisposed)
             {
                 return;
             }
 
-            _pairing = pairing;
-            ApplyState(online, status, pairing);
+            if (snapshot is null)
+            {
+                _pairing = null;
+                ApplyState(false, null, null);
+                return;
+            }
+
+            _pairing = snapshot.Pairing;
+            ApplyState(true, snapshot.Status, snapshot.Pairing);
         }
         catch (Exception ex)
         {

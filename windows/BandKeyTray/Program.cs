@@ -78,7 +78,7 @@ internal static class Program
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => ShowControlCenter();
 
-        var timer = new System.Windows.Forms.Timer { Interval = 2000 };
+        var timer = new System.Windows.Forms.Timer { Interval = 3000 };
         timer.Tick += (_, _) => _ = PollAsync();
         timer.Start();
 
@@ -219,7 +219,8 @@ internal static class Program
 
     private static async Task PollAsync()
     {
-        if (_polling)
+        // 控制中心打开时由它自己刷新，避免托盘和窗口同时轮询服务。
+        if (_polling || _popover is { IsDisposed: false, Visible: true })
         {
             return;
         }
@@ -227,11 +228,17 @@ internal static class Program
         _polling = true;
         try
         {
-            var online = await Api.IsOnlineAsync();
-            ServiceItem.Text = online ? "服务状态：运行中" : "服务状态：未运行";
-            ServiceItem.ForeColor = online ? TechPalette.Success : TechPalette.Danger;
+            var snapshot = await Api.GetSnapshotAsync();
+            if (snapshot is null)
+            {
+                MarkServiceOffline();
+                return;
+            }
 
-            var pairing = online ? await Api.GetPairingAsync() : null;
+            ServiceItem.Text = "服务状态：运行中";
+            ServiceItem.ForeColor = TechPalette.Success;
+
+            var pairing = snapshot.Pairing;
             if (pairing is null)
             {
                 _lastNotifiedPin = null;
@@ -255,12 +262,21 @@ internal static class Program
         }
         catch (Exception ex)
         {
+            MarkServiceOffline();
             TrayLog.Write("poll failed: " + ex.Message);
         }
         finally
         {
             _polling = false;
         }
+    }
+
+    private static void MarkServiceOffline()
+    {
+        ServiceItem.Text = "服务状态：未运行";
+        ServiceItem.ForeColor = TechPalette.Danger;
+        PairingItem.Text = "查看配对 PIN";
+        _lastNotifiedPin = null;
     }
 
     private static async void ShowCredentialDialog()

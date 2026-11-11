@@ -44,6 +44,31 @@ Start-Service BandKeyService
 - 确认没有多个托盘进程或旧版本进程占用同名管道。
 - 托盘退出失败时，结束残留进程后重新启动。
 
+### BandKeyService 内存或句柄持续增长
+
+先观察句柄是否随时间线性增加：
+
+```powershell
+Get-Process BandKeyService |
+  Select-Object Handles,@{n='WS_MB';e={[math]::Round($_.WorkingSet64/1MB,1)}}
+```
+
+正常情况下句柄应在几百个以内并保持稳定。如果每秒增加约 1 个，通常是托盘
+`BandKeyTrayPipe` 连接没有被服务端及时关闭。1.8.4 及更早版本的
+`HandleTrayConnectionAsync` 会在回复后轮询 `IsConnected`，命名管道对端关闭后该值
+可能仍为 `true`，导致每个轮询请求都留下一个管道实例。
+
+处理方式：
+
+1. 升级到包含一次性关闭修复的版本。
+2. 重启 `BandKeyService` 释放已经泄漏的实例：
+
+```powershell
+Restart-Service BandKeyService
+```
+
+3. 观察 10 分钟，句柄数应基本不变。控制中心打开时也不应再按秒增长。
+
 ## 配对
 
 ### 手机点配对，电脑没有显示 PIN

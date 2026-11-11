@@ -20,8 +20,7 @@ internal static class TrayPipeClient
     {
         try
         {
-            await GetStatusAsync(TimeSpan.FromMilliseconds(750)).ConfigureAwait(false);
-            return true;
+            return await GetSnapshotAsync(TimeSpan.FromMilliseconds(750)).ConfigureAwait(false) is not null;
         }
         catch
         {
@@ -35,6 +34,38 @@ internal static class TrayPipeClient
             new { cmd = "GET_STATUS" },
             timeout ?? TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         return JsonSerializer.Deserialize<ServiceStatus>(line, JsonOptions);
+    }
+
+    public static async Task<ServiceSnapshot?> GetSnapshotAsync(TimeSpan? timeout = null)
+    {
+        var line = await SendRawAsync(
+            new { cmd = "GET_SNAPSHOT" },
+            timeout ?? TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+
+        using var document = JsonDocument.Parse(line);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("status", out var statusElement)
+            || statusElement.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var status = JsonSerializer.Deserialize<ServiceStatus>(
+            statusElement.GetRawText(), JsonOptions);
+        if (status is null)
+        {
+            return null;
+        }
+
+        PairingInfo? pairing = null;
+        if (root.TryGetProperty("pairing", out var pairingElement)
+            && pairingElement.ValueKind == JsonValueKind.Object)
+        {
+            pairing = JsonSerializer.Deserialize<PairingInfo>(
+                pairingElement.GetRawText(), JsonOptions);
+        }
+
+        return new ServiceSnapshot(status, pairing);
     }
 
     public static async Task<PairingInfo?> GetPairingAsync()

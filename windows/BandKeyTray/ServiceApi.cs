@@ -19,9 +19,14 @@ internal sealed record ServiceStatus(
     long? NfcLastUsedAt,
     bool DevMode);
 
+internal sealed record ServiceSnapshot(ServiceStatus? Status, PairingInfo? Pairing);
+
 internal sealed class ServiceApi
 {
     public Task<bool> IsOnlineAsync() => TrayPipeClient.IsServiceOnlineAsync();
+
+    public Task<ServiceSnapshot?> GetSnapshotAsync(TimeSpan? timeout = null)
+        => TrayPipeClient.GetSnapshotAsync(timeout);
 
     public Task<ServiceStatus?> GetStatusAsync() => TrayPipeClient.GetStatusAsync();
 

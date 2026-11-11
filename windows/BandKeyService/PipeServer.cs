@@ -292,7 +292,14 @@ public sealed class PipeServer : IAsyncDisposable
                 }
 
                 ServiceLog.Write("[pipe] legacy credential provider connected");
-                while (!ct.IsCancellationRequested && pipe.IsConnected)
+                // 旧版 CP 在管道断开后会自动重连。限制单次连接寿命，
+                // 避免 IsConnected 未及时反映断开时永久占用一个管道实例。
+                var connectedAt = Environment.TickCount64;
+                const long legacyConnectionLifetimeMs = 5 * 60 * 1000;
+                while (!ct.IsCancellationRequested
+                       && !pipe.SafePipeHandle.IsClosed
+                       && pipe.IsConnected
+                       && Environment.TickCount64 - connectedAt < legacyConnectionLifetimeMs)
                 {
                     await Task.Delay(1000, ct).ConfigureAwait(false);
                 }
@@ -435,6 +442,15 @@ public sealed class PipeServer : IAsyncDisposable
                     await HandleSaveCredentialAsync(writer, root, clientIdentity).ConfigureAwait(false);
                     break;
 
+                case "GET_SNAPSHOT":
+                    await WriteTrayJsonAsync(writer, new
+                    {
+                        @event = "SNAPSHOT",
+                        status = BuildStatusResponse(),
+                        pairing = _pairing.Current()
+                    }).ConfigureAwait(false);
+                    break;
+
                 case "GET_STATUS":
                     await WriteTrayJsonAsync(writer, BuildStatusResponse()).ConfigureAwait(false);
                     break;
@@ -542,10 +558,9 @@ public sealed class PipeServer : IAsyncDisposable
                     break;
             }
 
-            while (!ct.IsCancellationRequested && pipe.IsConnected)
-            {
-                await Task.Delay(1000, ct).ConfigureAwait(false);
-            }
+            // 托盘客户端每次请求只读取一条响应，随后关闭连接。
+            // 命名管道对端关闭后，如果服务端没有再次读写，IsConnected 可能
+            // 一直为 true；在这里等待会让管道、缓冲区和 Task 永久驻留。
         }
         catch (OperationCanceledException)
         {
