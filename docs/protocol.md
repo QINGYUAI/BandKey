@@ -1,6 +1,10 @@
 # BandKey 通信协议 v2
 
-手机（Android）与 Windows 服务（`BandKeyService`）之间使用同一套 JSON 消息与签名协议，可运行在四种传输通道上：
+> 适用版本：`1.8.4` · [文档索引](README.md) · [系统架构](architecture.md) ·
+> [安全模型](security.md)
+
+手机（Android）与 Windows 服务（`BandKeyService`）之间使用同一套 JSON 消息与签名
+协议，可运行在三种业务传输通道上；UDP 只负责局域网发现。
 
 | 通道 | 地址 | 编码 | 用途 |
 | --- | --- | --- | --- |
@@ -19,7 +23,15 @@ BLE 与 LAN 通道都只是替换传输层，消息体、签名与错误码完�
 { "type": "<消息类型>", "payload": { "...": "..." } }
 ```
 
-NDJSON 通道要求每条消息以 `\n` 结尾；单条消息上限 16 KiB。WebSocket 使用文本帧。
+NDJSON 通道要求每条消息以 `\n` 结尾。当前实现的消息上限：
+
+| 通道 | 上限 |
+| --- | --- |
+| BLE | 8 KiB |
+| LAN TCP | 16 KiB |
+| WebSocket | 服务端按分片接收，建议同样控制在 16 KiB 内 |
+
+正常配对和解锁消息远小于上述限制。不要依赖超限消息的截断行为。
 
 ## 密码学约定
 
