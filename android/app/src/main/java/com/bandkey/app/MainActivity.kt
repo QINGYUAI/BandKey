@@ -1,14 +1,19 @@
 package com.bandkey.app
 
 import android.Manifest
+import android.appwidget.AppWidgetManager
+import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.nfc.NfcAdapter
 import android.nfc.Tag
-import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -48,6 +53,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -93,6 +100,19 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     private var nfcTagHandler: ((Tag) -> Unit)? = null
     private var nfcReaderWanted = false
     private var nfcTagDelivered = false
+    private var screenReceiverRegistered = false
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> disableNfcReader()
+                Intent.ACTION_SCREEN_ON -> {
+                    if (nfcReaderWanted && !nfcTagDelivered) {
+                        enableNfcReader()
+                    }
+                }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -110,6 +130,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         val savedUnlockChannel = prefs.getString("unlock_channel", "phone")
             ?.takeIf { it == "phone" || it == "nfc" }
             ?: "phone"
+        val savedNfcAutoUnlock = prefs.getBoolean(BackgroundUnlock.KEY_NFC_AUTO_UNLOCK, false)
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         ensureBlePermissions()
 
@@ -120,6 +141,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                     initialUrl = savedUrl ?: "ws://192.168.1.71:23234/bandkey",
                     initialDeviceName = savedDeviceName,
                     initialUnlockChannel = savedUnlockChannel,
+                    initialNfcAutoUnlock = savedNfcAutoUnlock,
                     onModeChange = { value ->
                         prefs.edit().putString("transport_mode", value).apply()
                     },
@@ -131,6 +153,10 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                     },
                     onUnlockChannelChange = { value ->
                         prefs.edit().putString("unlock_channel", value).apply()
+                    },
+                    onNfcAutoUnlockChange = { enabled ->
+                        BackgroundUnlock.setNfcAutoUnlockEnabled(this@MainActivity, enabled)
+                        BandKeyWidgetProvider.refresh(this@MainActivity)
                     },
                     onNeedBlePermissions = { ensureBlePermissions() },
                     nfcAvailabilityProvider = { currentNfcAvailability() },
@@ -144,14 +170,26 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
     override fun onResume() {
         super.onResume()
-        if (nfcReaderWanted && !nfcTagDelivered) {
+        registerScreenReceiver()
+        BandKeyWidgetProvider.refresh(this)
+        if (nfcReaderWanted &&
+            !nfcTagDelivered &&
+            getSystemService(PowerManager::class.java)?.isInteractive == true
+        ) {
             enableNfcReader()
         }
     }
 
     override fun onPause() {
+        unregisterScreenReceiver()
         disableNfcReader()
         super.onPause()
+    }
+
+    override fun onStop() {
+        // 息屏或切到后台后必须释放 Reader Mode，否则系统 NFC 分发会被前台读卡器抢占。
+        disableNfcReader()
+        super.onStop()
     }
 
     override fun onDestroy() {
@@ -218,12 +256,34 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         runCatching { nfcAdapter?.disableReaderMode(this) }
     }
 
-    private fun openNfcSettings() {
-        val intent = Intent(Settings.ACTION_NFC_SETTINGS)
-        runCatching { startActivity(intent) }
-            .onFailure {
-                runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+    private fun registerScreenReceiver() {
+        if (screenReceiverRegistered) {
+            return
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+        }
+        screenReceiverRegistered = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(screenStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(screenStateReceiver, filter)
             }
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun unregisterScreenReceiver() {
+        if (!screenReceiverRegistered) {
+            return
+        }
+        runCatching { unregisterReceiver(screenStateReceiver) }
+        screenReceiverRegistered = false
+    }
+
+    private fun openNfcSettings() {
+        VendorSettings.openNfcSettings(this)
     }
 
     private fun ensureBlePermissions() {
@@ -310,10 +370,12 @@ private fun BandKeyScreen(
     initialUrl: String,
     initialDeviceName: String,
     initialUnlockChannel: String,
+    initialNfcAutoUnlock: Boolean,
     onModeChange: (String) -> Unit,
     onUrlChange: (String) -> Unit,
     onDeviceNameChange: (String) -> Unit,
     onUnlockChannelChange: (String) -> Unit,
+    onNfcAutoUnlockChange: (Boolean) -> Unit,
     onNeedBlePermissions: () -> Unit,
     nfcAvailabilityProvider: () -> NfcAvailability,
     onStartNfcReader: ((Tag) -> Unit) -> NfcAvailability,
@@ -330,6 +392,7 @@ private fun BandKeyScreen(
     var serverUrl by remember { mutableStateOf(initialUrl) }
     var deviceName by remember { mutableStateOf(initialDeviceName) }
     var unlockChannel by remember { mutableStateOf(initialUnlockChannel) }
+    var nfcAutoUnlock by remember { mutableStateOf(initialNfcAutoUnlock) }
     var status by remember { mutableStateOf("等待建立安全通道") }
     var keyPair by remember { mutableStateOf<KeyPair?>(null) }
     var deviceId by remember { mutableStateOf("") }
@@ -386,6 +449,13 @@ private fun BandKeyScreen(
         nfcAvailability = nfcAvailabilityProvider()
         if (!nfcKeys.isEmpty()) {
             nfcNotice = "已加载 ${nfcKeys.size} 张 NFC 钥匙"
+        }
+    }
+
+    LaunchedEffect(tab) {
+        if (tab == MainTab.SETTINGS) {
+            nfcAutoUnlock = BackgroundUnlock.isNfcAutoUnlockEnabled(context)
+            nfcAvailability = nfcAvailabilityProvider()
         }
     }
 
@@ -642,6 +712,7 @@ private fun BandKeyScreen(
                         pairedAt = at
                     )
                     withContext(Dispatchers.IO) { pairingStore.save(record) }
+                    BandKeyWidgetProvider.refresh(context)
                     pairingId = null
                     pinInput = ""
                     showPairing = false
@@ -860,6 +931,7 @@ private fun BandKeyScreen(
     fun unpair() {
         scope.launch {
             withContext(Dispatchers.IO) { pairingStore.clear() }
+            BandKeyWidgetProvider.refresh(context)
             keyPair = null
             deviceId = ""
             pairedAt = 0L
@@ -973,6 +1045,7 @@ private fun BandKeyScreen(
         )
         val updated = (listOf(record) + remaining).take(NfcKeyStore.MAX_KEYS)
         withContext(Dispatchers.IO) { nfcKeyStore.save(updated) }
+        BandKeyWidgetProvider.refresh(context)
         nfcKeys = updated
         nfcPhase = NfcPhase.IDLE
         nfcOverwriteTarget = null
@@ -1149,6 +1222,7 @@ private fun BandKeyScreen(
         scope.launch {
             val updated = nfcKeys.filterNot { it.id == record.id }
             withContext(Dispatchers.IO) { nfcKeyStore.save(updated) }
+            BandKeyWidgetProvider.refresh(context)
             nfcKeys = updated
             nfcDeleteTarget = null
             nfcPhase = NfcPhase.IDLE
@@ -1246,6 +1320,9 @@ private fun BandKeyScreen(
                             credentialReady = credentialReady,
                             busy = busy,
                             status = status,
+                            nfcKeysCount = nfcKeys.size,
+                            nfcAvailability = nfcAvailability,
+                            nfcAutoUnlock = nfcAutoUnlock,
                             onModeChange = { value ->
                                 mode = value
                                 onModeChange(value)
@@ -1262,6 +1339,12 @@ private fun BandKeyScreen(
                                 deviceName = safe
                                 onDeviceNameChange(safe)
                             },
+                            onNfcAutoUnlockChange = { enabled ->
+                                nfcAutoUnlock = enabled
+                                onNfcAutoUnlockChange(enabled)
+                            },
+                            onOpenDevices = { tab = MainTab.DEVICES },
+                            onOpenNfcSettings = onOpenNfcSettings,
                             onRequestUnpair = { pendingUnpair = true }
                         )
                     }
@@ -2402,12 +2485,36 @@ private fun SettingsScreen(
     credentialReady: Boolean,
     busy: Boolean,
     status: String,
+    nfcKeysCount: Int,
+    nfcAvailability: NfcAvailability,
+    nfcAutoUnlock: Boolean,
     onModeChange: (String) -> Unit,
     onUrlChange: (String) -> Unit,
     onDeviceNameChange: (String) -> Unit,
+    onNfcAutoUnlockChange: (Boolean) -> Unit,
+    onOpenDevices: () -> Unit,
+    onOpenNfcSettings: () -> Unit,
     onRequestUnpair: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val paired = deviceId.isNotEmpty()
+    var nfcLastEvent by remember { mutableStateOf(NfcDiagnostics.lastEvent(context)) }
+    var nfcTagIntentState by remember { mutableStateOf(NfcTagIntentAccess.read(context)) }
+    val nfcLifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(nfcLifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                nfcLastEvent = NfcDiagnostics.lastEvent(context)
+                nfcTagIntentState = NfcTagIntentAccess.read(context)
+            }
+        }
+        nfcLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { nfcLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val vendorSetupRequired = remember {
+        VendorSettings.isXiaomi() || VendorSettings.isHuaweiOrHonor()
+    }
+    val isXiaomi = remember { VendorSettings.isXiaomi() }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -2510,6 +2617,330 @@ private fun SettingsScreen(
                     placeholder = "我的手机",
                     trailingText = "${deviceName.length}/64",
                     modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            SettingCard(
+                title = "息屏 NFC 自动解锁",
+                subtitle = "亮屏锁屏或息屏时贴卡；息屏触发取决于系统 NFC 策略。",
+                statusText = if (nfcAutoUnlock) "ARMED" else "OFF",
+                statusTone = if (nfcAutoUnlock) Bk.Mint else Bk.Muted
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "自动请求电脑解锁",
+                            color = Bk.Text,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            text = "识别卡片后直接验签；亮屏锁屏时无需打开 App，息屏能力由系统决定。",
+                            color = Bk.Muted,
+                            fontSize = 10.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Switch(
+                        checked = nfcAutoUnlock,
+                        onCheckedChange = onNfcAutoUnlockChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Bk.Background,
+                            checkedTrackColor = Bk.Mint,
+                            uncheckedThumbColor = Bk.Muted,
+                            uncheckedTrackColor = Bk.Surface2,
+                            uncheckedBorderColor = Bk.LineStrong
+                        )
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                InfoRow(
+                    label = "已绑定 NFC 钥匙",
+                    value = "$nfcKeysCount / ${NfcKeyStore.MAX_KEYS}",
+                    valueColor = if (nfcKeysCount > 0) Bk.Mint else Bk.Amber
+                )
+                InfoRow(
+                    label = "系统 NFC",
+                    value = when (nfcAvailability) {
+                        NfcAvailability.READY -> "已开启"
+                        NfcAvailability.DISABLED -> "已关闭"
+                        NfcAvailability.UNSUPPORTED -> "不支持"
+                    },
+                    valueColor = when (nfcAvailability) {
+                        NfcAvailability.READY -> Bk.Mint
+                        NfcAvailability.DISABLED -> Bk.Amber
+                        NfcAvailability.UNSUPPORTED -> Bk.Coral
+                    }
+                )
+                InfoRow(
+                    label = "系统分发",
+                    value = "NDEF 优先 / TECH 兜底",
+                    valueColor = Bk.Mint
+                )
+                InfoRow(
+                    label = "NFC 启动权限",
+                    value = when {
+                        !nfcTagIntentState.nfcAvailable -> "无 NFC 硬件"
+                        !nfcTagIntentState.preferenceSupported -> "系统未限制"
+                        nfcTagIntentState.allowed -> "已允许"
+                        else -> "已禁止"
+                    },
+                    valueColor = when {
+                        !nfcTagIntentState.nfcAvailable -> Bk.Coral
+                        !nfcTagIntentState.preferenceSupported -> Bk.Muted
+                        nfcTagIntentState.allowed -> Bk.Mint
+                        else -> Bk.Coral
+                    }
+                )
+                InfoRow(
+                    label = "上次卡片事件",
+                    value = nfcLastEvent?.let {
+                        SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(it.at))
+                    } ?: "未收到",
+                    valueColor = if (nfcLastEvent == null) Bk.Amber else Bk.Mint
+                )
+                InfoRow(
+                    label = "生效场景",
+                    value = "亮屏锁屏 / 息屏（视机型）",
+                    valueColor = Bk.Iris
+                )
+                val lastEvent = nfcLastEvent
+                if (lastEvent != null) {
+                    Spacer(Modifier.height(8.dp))
+                    StatusNote(
+                        text = "上次事件：${lastEvent.action} · ${lastEvent.detail}",
+                        tone = Bk.Dim,
+                        glyph = BkGlyph.NFC
+                    )
+                }
+
+                if (nfcKeysCount == 0) {
+                    Spacer(Modifier.height(10.dp))
+                    StatusNote(
+                        text = "还没有绑定 NFC 钥匙。请先在设备页写入并绑定一张 NDEF 卡。",
+                        tone = Bk.Amber,
+                        glyph = BkGlyph.NFC
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    SecondaryAction(
+                        text = "前往设备页绑定",
+                        onClick = onOpenDevices,
+                        glyph = BkGlyph.NFC,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                if (!nfcTagIntentState.allowed) {
+                    Spacer(Modifier.height(8.dp))
+                    StatusNote(
+                        text = "系统已禁止 BandKey 接收 NFC 卡片事件。Android 16 及以上会在「通过 NFC 启动」中按应用管控，关闭后贴卡不会启动任何 BandKey 页面。",
+                        tone = Bk.Coral,
+                        glyph = BkGlyph.ALERT
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    SecondaryAction(
+                        text = "允许 BandKey 通过 NFC 启动",
+                        onClick = {
+                            if (!NfcTagIntentAccess.openSettings(context)) {
+                                Toast.makeText(
+                                    context,
+                                    "无法打开 NFC 启动权限页，请前往 设置 → 应用 → 特殊应用权限 → 通过 NFC 启动",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        },
+                        glyph = BkGlyph.NFC,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
+                SecondaryAction(
+                    text = "检查锁屏 NFC 与系统设置",
+                    onClick = onOpenNfcSettings,
+                    glyph = BkGlyph.SETTINGS,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (nfcAutoUnlock && nfcKeysCount > 0 && nfcLastEvent == null) {
+                    Spacer(Modifier.height(8.dp))
+                    StatusNote(
+                        text = "还没有收到系统 NFC 分发。贴卡后这里仍显示「未收到」，表示事件没有交给 BandKey，请优先开启系统「锁屏时使用 NFC」。",
+                        tone = Bk.Amber,
+                        glyph = BkGlyph.ALERT
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
+                StatusNote(
+                    text = "Android 通常只在屏幕解锁后扫描 NFC，部分厂商才支持锁屏/息屏读取。若息屏贴卡无反应，请先点亮屏幕并保持锁屏再贴卡，以区分系统限制和 App 读卡问题。",
+                    tone = Bk.Dim,
+                    glyph = BkGlyph.SHIELD
+                )
+
+                if (vendorSetupRequired) {
+                    Spacer(Modifier.height(8.dp))
+                    StatusNote(
+                        text = if (isXiaomi) {
+                            "小米 / HyperOS 若贴卡无反应，请开启系统 NFC 的「锁屏时使用 NFC」，并允许 BandKey「后台弹出界面 / 锁屏显示」、自启动，电池策略设为「无限制」。"
+                        } else {
+                            "若贴卡完全没有反应，请在应用权限中允许「后台弹出界面 / 锁屏显示」，并开启系统 NFC 的「锁屏时使用 NFC」。"
+                        },
+                        tone = Bk.Amber,
+                        glyph = BkGlyph.ALERT
+                    )
+                    if (isXiaomi) {
+                        Spacer(Modifier.height(8.dp))
+                        SecondaryAction(
+                            text = "小米自启动与后台权限",
+                            onClick = { VendorSettings.openAutoStart(context) },
+                            glyph = BkGlyph.SETTINGS,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        SecondaryAction(
+                            text = "小米锁屏显示与权限",
+                            onClick = { VendorSettings.openPermissionEditor(context) },
+                            glyph = BkGlyph.SHIELD,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        SecondaryAction(
+                            text = "小米省电策略",
+                            onClick = { VendorSettings.openBatterySettings(context) },
+                            glyph = BkGlyph.LINK,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        SecondaryAction(
+                            text = "默认触碰付款应用",
+                            onClick = { VendorSettings.openNfcPaymentSettings(context) },
+                            glyph = BkGlyph.NFC,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        Spacer(Modifier.height(8.dp))
+                        SecondaryAction(
+                            text = "打开应用权限设置",
+                            onClick = { VendorSettings.openAppDetails(context) },
+                            glyph = BkGlyph.SETTINGS,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            SettingCard(
+                title = "桌面小组件",
+                subtitle = "无需打开应用，在桌面查看状态并一键解锁。",
+                statusText = "WIDGET",
+                statusTone = Bk.Iris
+            ) {
+                InfoRow(
+                    label = "组件尺寸",
+                    value = "2 × 1 至 4 × 3（可调整）",
+                    valueColor = Bk.Iris
+                )
+                InfoRow(
+                    label = "快捷操作",
+                    value = "解锁 / 打开应用 / NFC 开关"
+                )
+                if (isXiaomi) {
+                    InfoRow(
+                        label = "小米桌面",
+                        value = "专属 2 × 2 卡片",
+                        valueColor = Bk.Mint
+                    )
+                    InfoRow(
+                        label = "小米小部件中心",
+                        value = "需平台审核",
+                        valueColor = Bk.Amber
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                SecondaryAction(
+                    text = if (isXiaomi) "添加小米 2×2 卡片" else "添加到桌面",
+                    onClick = {
+                        val manager = AppWidgetManager.getInstance(context)
+                        val provider = ComponentName(
+                            context,
+                            if (isXiaomi) {
+                                BandKeyMiuiWidgetProvider::class.java
+                            } else {
+                                BandKeyWidgetProvider::class.java
+                            }
+                        )
+                        val extras = if (isXiaomi) {
+                            Bundle().apply {
+                                putString("addType", "appWidgetDetail")
+                                putString(
+                                    "widgetName",
+                                    "${context.packageName}/${BandKeyMiuiWidgetProvider::class.java.name}"
+                                )
+                            }
+                        } else {
+                            null
+                        }
+                        val pinned = if (manager.isRequestPinAppWidgetSupported) {
+                            runCatching {
+                                manager.requestPinAppWidget(provider, extras, null)
+                            }.getOrDefault(false)
+                        } else {
+                            false
+                        }
+                        if (!pinned) {
+                            Toast.makeText(
+                                context,
+                                "当前桌面不支持自动添加，请长按桌面选择「添加小部件 / 微件」手动添加",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    },
+                    glyph = BkGlyph.SHIELD,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (isXiaomi) {
+                    Spacer(Modifier.height(6.dp))
+                    SecondaryAction(
+                        text = "兼容：添加安卓小组件",
+                        onClick = {
+                            val manager = AppWidgetManager.getInstance(context)
+                            val provider = ComponentName(
+                                context,
+                                BandKeyWidgetProvider::class.java
+                            )
+                            val pinned = manager.isRequestPinAppWidgetSupported &&
+                                runCatching {
+                                    manager.requestPinAppWidget(provider, null, null)
+                                }.getOrDefault(false)
+                            if (!pinned) {
+                                Toast.makeText(
+                                    context,
+                                    "请长按桌面 → 添加小部件 → 安卓小部件 → BandKey",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        },
+                        glyph = BkGlyph.LINK,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                StatusNote(
+                    text = if (isXiaomi) {
+                        "小米桌面会弹出添加确认；若未出现，请长按桌面 → 添加小部件 → BandKey 选择小米 2×2 卡片。"
+                    } else {
+                        "部分启动器会弹出确认窗口；添加后可长按组件调整大小。"
+                    },
+                    tone = Bk.Dim,
+                    glyph = BkGlyph.LINK
                 )
             }
 

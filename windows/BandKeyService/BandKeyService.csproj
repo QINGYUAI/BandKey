@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>BandKeyService</RootNamespace>
     <AssemblyName>BandKeyService</AssemblyName>
-    <Version>1.8.3</Version>
+    <Version>1.8.4</Version>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">BandKey</string>
+    <string name="widget_name">BandKey 快捷解锁</string>
+    <string name="widget_description">查看配对状态、一键解锁电脑，并切换息屏 NFC 自动解锁。</string>
+    <string name="widget_name_miui">一键解锁</string>
+    <string name="widget_description_miui">小米 / HyperOS 桌面 2×2 快捷卡片，查看状态、一键解锁并切换 NFC 自动解锁。</string>
 </resources>

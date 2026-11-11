@@ -1,7 +1,9 @@
 package com.bandkey.app
 
+import android.content.Intent
 import android.nfc.NdefMessage
 import android.nfc.NdefRecord
+import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.TagLostException
 import android.nfc.tech.Ndef
@@ -11,7 +13,12 @@ import java.nio.charset.Charset
 
 object NfcCard {
 
-    private val externalType = "bandkey:unlock".toByteArray(Charsets.US_ASCII)
+    private const val PACKAGE_NAME = "com.bandkey.app"
+
+    private val externalType = "com.bandkey:unlock".toByteArray(Charsets.US_ASCII)
+    private val legacyExternalType = "bandkey:unlock".toByteArray(Charsets.US_ASCII)
+    private val mimeType = "application/vnd.bandkey.unlock".toByteArray(Charsets.US_ASCII)
+    private val applicationType = "android.com:pkg".toByteArray(Charsets.US_ASCII)
 
     sealed class WriteResult {
         data object Success : WriteResult()
@@ -26,7 +33,10 @@ object NfcCard {
         val record = NdefRecord(
             NdefRecord.TNF_EXTERNAL_TYPE, externalType, ByteArray(0), payload.toByteArray(Charsets.UTF_8)
         )
-        val message = NdefMessage(arrayOf(record))
+        // 第一条记录决定系统如何映射 NDEF；AAR 放在后面，只在过滤器未唯一命中时兜底启动本应用。
+        val message = NdefMessage(
+            arrayOf(record, NdefRecord.createApplicationRecord(PACKAGE_NAME))
+        )
         val required = message.toByteArray().size
 
         val ndef = Ndef.get(tag)
@@ -75,27 +85,52 @@ object NfcCard {
         )
     }
 
-    fun readPayload(tag: Tag): String? {
-        val ndef = Ndef.get(tag) ?: return null
+    fun readPayload(tag: Tag?, intent: Intent? = null): String? {
+        intent?.let { payloadFromIntent(it) }?.let { return it }
+        val target = tag ?: return null
+        val ndef = Ndef.get(target) ?: return null
+        ndef.cachedNdefMessage?.let { payloadFromMessage(it) }?.let { return it }
         ndef.connect()
         try {
-            val message = ndef.ndefMessage ?: ndef.cachedNdefMessage ?: return null
-            for (record in message.records) {
-                if (isBandKeyRecord(record)) {
-                    return String(record.payload, Charsets.UTF_8)
-                }
-            }
+            return payloadFromMessage(ndef.ndefMessage ?: ndef.cachedNdefMessage)
         } finally {
             ndef.close()
+        }
+    }
+
+    fun hasNdefMessage(intent: Intent): Boolean = ndefMessages(intent).isNotEmpty()
+
+    private fun payloadFromIntent(intent: Intent): String? =
+        ndefMessages(intent).firstNotNullOfOrNull { payloadFromMessage(it) }
+
+    private fun payloadFromMessage(message: NdefMessage?): String? {
+        message ?: return null
+        for (record in message.records) {
+            if (isBandKeyRecord(record)) {
+                return String(record.payload, Charsets.UTF_8)
+            }
         }
         return null
     }
 
+    private fun ndefMessages(intent: Intent): List<NdefMessage> {
+        @Suppress("DEPRECATION")
+        val raw = intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES)
+        return raw?.filterIsInstance<NdefMessage>().orEmpty()
+    }
+
     private fun isBandKeyRecord(record: NdefRecord): Boolean =
-        record.tnf == NdefRecord.TNF_EXTERNAL_TYPE && record.type.contentEquals(externalType)
+        (record.tnf == NdefRecord.TNF_EXTERNAL_TYPE &&
+            (record.type.contentEquals(externalType) ||
+                record.type.contentEquals(legacyExternalType))) ||
+            (record.tnf == NdefRecord.TNF_MIME_MEDIA &&
+                record.type.contentEquals(mimeType))
 
     private fun isIgnorableRecord(record: NdefRecord): Boolean =
-        isBandKeyRecord(record) || record.tnf == NdefRecord.TNF_EMPTY
+        isBandKeyRecord(record) ||
+            record.tnf == NdefRecord.TNF_EMPTY ||
+            (record.tnf == NdefRecord.TNF_EXTERNAL_TYPE &&
+                record.type.contentEquals(applicationType))
 
     private fun describeFailure(error: Exception): String = when (error) {
         is TagLostException -> "卡片离开感应区或连接中断"

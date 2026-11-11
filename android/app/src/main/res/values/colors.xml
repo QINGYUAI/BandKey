@@ -1,3 +1,16 @@
 <resources>
     <color name="ic_launcher_background">#1B6EF3</color>
+    <color name="bandkey_background">#05070B</color>
+    <color name="bandkey_surface">#0B1119</color>
+    <color name="bandkey_surface_alt">#111A26</color>
+    <color name="bandkey_text">#EDF6FA</color>
+    <color name="bandkey_muted">#8A9BAE</color>
+    <color name="bandkey_dim">#5A6B7E</color>
+    <color name="bandkey_mint">#63F2CF</color>
+    <color name="bandkey_mint_deep">#2ED3B0</color>
+    <color name="bandkey_iris">#8C7BFF</color>
+    <color name="bandkey_amber">#FFB86B</color>
+    <color name="bandkey_coral">#FF6B81</color>
+    <color name="bandkey_line">#1FFFFFFF</color>
+    <color name="bandkey_line_strong">#3363F2CF</color>
 </resources>

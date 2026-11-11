@@ -1,6 +1,6 @@
 # BandKey（电脑钥匙）
 
-用手机、手环或手机贴 NFC 卡解锁 Windows 电脑。本仓库是完整自研实现，包含 Android 端、Windows 服务、Windows 凭据提供程序（Credential Provider）、蓝牙/局域网通道、托盘程序和安装脚本。
+用手机、手环或手机贴 NFC 卡解锁 Windows 电脑。本仓库是完整自研实现，包含 Android 端、Windows 服务、Windows 凭据提供程序（Credential Provider）、蓝牙/局域网通道、托盘程序和安装脚本。Android 端支持桌面小组件快捷解锁，以及锁屏/息屏状态下的 NFC 自动解锁。
 
 ## 目录结构
 
@@ -33,7 +33,7 @@ bandkey/
 | 托盘 | .NET 8 WinForms，自绘暗色科技风控件与菜单 |
 | Credential Provider | C++17 + WinSDK COM，接入 Winlogon 锁屏 |
 | 手机 ↔ 电脑 | WebSocket / BLE GATT / LAN TCP，统一 JSON + ECDSA 签名 |
-| Android | Kotlin + Jetpack Compose + OkHttp + Keystore + NFC Reader Mode |
+| Android | Kotlin + Jetpack Compose + OkHttp + Keystore + NFC Reader Mode / 系统 NFC 分发 + AppWidget |
 | 打包 | Inno Setup + 自包含单文件发布，统一输出到 `dist` |
 
 核心安全设计：
@@ -87,6 +87,35 @@ v1.8.3 修复“NDEF 卡可识别，但写卡时报与卡片通信失败”的�
 - 现在绑定流程会保持 Reader Mode，直到读取、格式化和写入全部完成后再关闭。
 - 读卡解锁在读取到令牌后立即关闭 Reader Mode，再进入后续网络解锁流程。
 - 写卡异常会区分“卡片离开感应区”“卡片加密/锁定”和普通 IO 错误，便于定位。
+
+## v1.8.4 桌面小组件与息屏 NFC 自动解锁
+
+v1.8.4 为 Android 端增加两个无需打开 App 的入口：
+
+- 新增桌面小组件「BandKey 快捷解锁」，显示配对状态、NFC 钥匙数量、自动解锁开关和最近一次解锁结果。
+- 设置页提供「添加到桌面」入口，通过系统固定小组件流程一键添加；不支持的启动器会提示手动添加。
+- 小组件会根据实际格子尺寸自动切换迷你、紧凑、标准、横向四种布局，并在缩放时实时重排。
+- 尺寸映射：1 行使用单行迷你布局；2 列/2–4 行使用紧凑布局，高度不足时自动隐藏最近状态和次要按钮；3×3 使用标准布局；4×3 及以上使用横向布局，避免文本和按钮被裁切。
+- 小组件支持「一键解锁」「打开应用」「NFC 自动：开/关」三个操作；解锁请求在透明 Activity 中执行，不占用桌面广播的短生命周期。
+- 新增「息屏 NFC 自动解锁」开关，默认关闭。开启后，锁屏或息屏时贴卡会由系统 NFC 分发启动 `NfcAutoUnlockActivity`。
+- NFC 同时注册 `NDEF_DISCOVERED`（外部类型 + MIME）和 `TECH_DISCOVERED`，优先于钱包类应用接收 BandKey 卡片；读取时优先使用 Intent 缓存的 NDEF 数据，减少亮屏瞬间重连导致的读卡失败。
+- 息屏入口复用同一套本地验证逻辑：读取 NDEF → 校验 `bandkey:v1` 令牌 → 匹配本机 NFC 钥匙 → 使用已配对私钥签名 → BLE 优先、局域网回退。
+- 锁屏反馈页使用不透明全屏主题，并在首帧真正绘制后才开始自动关闭计时，避免冷启动或低性能机型上状态页刚出现就消失。
+- 设置页新增「上次卡片事件」与「检查锁屏 NFC 与系统设置」诊断入口，可区分系统未分发、读取失败和本地验证失败三种情况；事件同时写入 `files/nfc-events.log` 与 logcat 标签 `BandKeyNfc`。
+- 新增 Android 16+「通过 NFC 启动」权限检测；若用户关闭了 BandKey 的 NFC Intent 接收权限，设置页会直接提示并提供权限页入口。
+- 新增小米 / HyperOS 专属 2×2 桌面卡片，按小米规范使用 `miuiWidget` 标识、`:widgetProvider` 独立进程、曝光刷新、`miuiWidgetVersion` 和 `@android:id/background` 根布局，并使用 24dp 大圆角深色背景。
+- 小米机型设置页新增「自启动与后台权限」「锁屏显示与权限」「省电策略」直达入口，用于排查锁屏 NFC 事件未被系统分发的问题。
+- 自动解锁不要求打开 App，也不会绕过电脑端 ECDSA 验签与 Windows 凭据提供程序确认。
+- 受手机厂商策略影响，部分机型默认禁止锁屏 NFC 读取；需要在系统 NFC 设置中允许锁屏/息屏使用 NFC。
+
+### 小米小部件中心说明
+
+标准 `AppWidgetProvider` 只会出现在小米桌面的「安卓小部件」入口。要出现在小米「小部件中心」，必须完成以下平台侧流程：
+
+1. 应用先上架或更新到小米应用商店，并通过应用商店审核。
+2. 首次适配需邮件联系 `miui-widget@xiaomi.com`，申请开通小部件开放平台入口。
+3. 在 [小米小部件开放平台](https://widget.xiaomi.com/) 上传小部件资料、预览图和尺寸信息。
+4. 提交小米审核，审核通过后才会在小部件中心展示；仅修改代码无法绕过该审核流程。
 
 ## 快速开始（Windows）
 
@@ -214,14 +243,37 @@ NFC 是手机端的本地身份验证入口，不新增网络协议，也不要�
          -> Windows 验签并解锁 -> 双端展示最近 NFC 验证状态
 ```
 
+息屏/锁屏自动解锁使用系统 NFC 分发，不依赖 Reader Mode，但属于系统尽力而为能力：
+
+```text
+息屏/锁屏贴卡 -> Android NFC 服务优先分发 NDEF_DISCOVERED
+              -> 未匹配时回退 TECH_DISCOVERED
+         -> NfcAutoUnlockActivity（透明、showWhenLocked）
+         -> 读取 NDEF -> 校验令牌 -> 匹配本机钥匙 -> 后台签名解锁
+```
+
 - 卡片写入 `bandkey:v1:<43 字符 URL-safe Base64>`，内容为 32 字节随机令牌，不写入账户、密码、私钥或卡片 UID。
+- 新写入的卡片第一条记录使用规范外部类型 `com.bandkey:unlock`，并追加 Android Application Record（AAR）兜底启动 BandKey；旧的 `bandkey:unlock` 卡片继续兼容。
 - 绑定只接受空白卡、可格式化卡或已有的 BandKey 卡；检测到其他 NDEF 数据时会拒绝覆盖。
 - 手机最多保存 3 张钥匙，只持久化令牌 SHA-256 与展示指纹；记录由 Android Keystore 的 AES-256-GCM 加密。
 - 已绑定卡贴卡后自动发起解锁；未授权卡只在手机本地拒绝，不会生成 Windows 解锁请求。
+- 需要在「设置 → 息屏 NFC 自动解锁」中显式开启自动解锁；未开启时系统入口会直接结束，不发送网络请求。
+- 自动解锁开启后，系统入口会短暂点亮屏幕并显示解锁进度，完成后自动返回锁屏。
+- Android 官方说明设备通常只在屏幕解锁后扫描 NFC；息屏/锁屏分发取决于厂商 NFC 策略，不能把它当作所有机型都保证可用的后台读卡接口。
 - 实体卡属于持有型凭据，仍可能被复制；请像保管钥匙一样保管卡片，丢失后立即在手机端删除对应钥匙并重新绑定新卡。
 - 解锁请求附带 `method=nfc` 与 `keyHint=BK-NFC ··· XXXX`，电脑仅用于展示最近验证方式，授权仍只依赖 ECDSA 验签。
 - Windows 控制中心显示最近一次成功投递的钥匙指纹和时间，不展示或管理手机端钥匙列表。
 - 服务重启会清空最近 NFC 展示状态；钥匙本身仍保存在手机端。
+
+### 息屏 NFC 排障
+
+1. 在设置页开启「息屏 NFC 自动解锁」，并确认「系统 NFC」显示为已开启。
+2. 在系统 NFC 设置中开启「锁屏时使用 NFC」；小米、华为、荣耀等机型还需在应用权限中允许「后台弹出界面 / 锁屏显示」。
+3. 小米 / HyperOS 还需允许 BandKey 自启动，并将电池策略设为「无限制」，同时检查默认触碰付款应用是否抢占卡片；若「上次卡片事件」持续显示「未收到」，说明系统没有把卡片 Intent 交给 BandKey，而不是读卡或验签失败。
+4. Android 16 及以上检查「设置 → 应用 → 特殊应用权限 → 通过 NFC 启动」，确认 BandKey 未被禁止；设置页会显示「NFC 启动权限」并提供直达入口。
+5. 可先点亮屏幕但保持锁屏状态贴卡：若亮屏锁屏能收到、息屏收不到，通常是系统关闭了息屏 NFC；若两者都收不到，优先检查 NFC 启动权限、后台弹出界面、锁屏显示和默认触碰付款应用。Android 通常只在屏幕解锁后扫描 NFC，息屏触发不是标准保证能力。
+6. 贴卡后回到设置页查看「上次卡片事件」：时间为空表示系统没有把卡片事件分发给 BandKey；已有事件但仍解锁失败，表示进入读取或本地验证阶段后失败。
+7. 需要完整日志时执行 `adb logcat -s BandKeyNfc:I`，或导出应用目录下的 `files/nfc-events.log`。
 
 ## 托盘与本地管理通道
 
@@ -348,9 +400,9 @@ Release 默认启用 R8 混淆与资源收缩。依赖下载需要代理时，�
 
 ```text
 dist/
-├── 1.8.3/
-│   ├── BandKey-1.8.3-windows-x64.exe
-│   ├── BandKey-1.8.3-android.apk
+├── 1.8.4/
+│   ├── BandKey-1.8.4-windows-x64.exe
+│   ├── BandKey-1.8.4-android.apk
 │   └── SHA256SUMS.txt
 └── latest/
     ├── BandKey-Setup.exe
