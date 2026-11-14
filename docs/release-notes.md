@@ -1,7 +1,23 @@
 # 版本记录
 
-当前最新版本为 `1.8.5`。下载地址：
+当前最新版本为 `1.8.6`。下载地址：
 [GitHub Releases](https://github.com/QINGYUAI/BandKey/releases/latest)。
+
+## 1.8.6
+
+安装体验与应用内更新。
+
+- Windows 安装器新增深色安全仪表向导图、专属多尺寸图标、中文欢迎页和完成页，
+  并在系统“应用和功能”中补充发布者、支持与更新链接。
+- Windows 托盘新增“检查软件更新…”和“仓库与使用文档”，控制中心版本号与页脚也可
+  直接打开更新窗口。
+- Windows 更新支持读取 GitHub Stable Release、SHA-256 校验、
+  `%LOCALAPPDATA%` 下载缓存和管理员权限安装。
+- Android 设置页新增“软件更新”和“仓库与文档”卡片，支持 APK 下载、SHA-256 校验、
+  FileProvider 交付与“安装未知应用”授权引导。
+- 两端启动时每 24 小时自动检查一次；只提示新版本，不静默下载或安装。
+- 新增 `docs/updates.md`，记录更新流程、安全边界和 Release 资产命名约束。
+- 版本升级至 `1.8.6 / versionCode 13`。
 
 ## 1.8.5
 

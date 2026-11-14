@@ -24,8 +24,8 @@ NFC 卡发起解锁请求，由 Windows 凭据提供程序完成锁屏登录。
 PowerShell 校验示例：
 
 ```powershell
-Get-FileHash .\BandKey-1.8.5-windows-x64.exe -Algorithm SHA256
-Get-FileHash .\BandKey-1.8.5-android.apk -Algorithm SHA256
+Get-FileHash .\BandKey-1.8.6-windows-x64.exe -Algorithm SHA256
+Get-FileHash .\BandKey-1.8.6-android.apk -Algorithm SHA256
 ```
 
 将结果与 `SHA256SUMS.txt` 中的值比较。不要使用来源不明或被重新打包的安装包。

@@ -176,8 +176,8 @@ BLE 需要 Windows 10 1809+ 和支持 Peripheral 角色的适配器。同一适�
 | `windows\BandKeyTray\BandKeyTray.csproj` | `<Version>x.y.z</Version>` |
 | `android\app\build.gradle.kts` | `bandKeyVersionName` 和 `versionCode` |
 
-`versionCode` 必须单调递增，不能重复使用已发布的值。当前版本为 `1.8.5` /
-`versionCode 12`。
+`versionCode` 必须单调递增，不能重复使用已发布的值。当前版本为 `1.8.6` /
+`versionCode 13`。
 
 ## 统一打包
 
@@ -198,9 +198,9 @@ BLE 需要 Windows 10 1809+ 和支持 Peripheral 角色的适配器。同一适�
 
 ```text
 dist/
-├── 1.8.5/
-│   ├── BandKey-1.8.5-windows-x64.exe
-│   ├── BandKey-1.8.5-android.apk
+├── 1.8.6/
+│   ├── BandKey-1.8.6-windows-x64.exe
+│   ├── BandKey-1.8.6-android.apk
 │   └── SHA256SUMS.txt
 └── latest/
     ├── BandKey-Setup.exe
@@ -210,6 +210,15 @@ dist/
 ```
 
 `dist/` 已被 `.gitignore` 忽略，安装包作为 GitHub Release 资产上传，不进入源码提交。
+
+应用内更新依赖固定的资产命名和校验文件，发布时必须保留：
+
+- `BandKey-<version>-windows-x64.exe`
+- `BandKey-<version>-android.apk`
+- `SHA256SUMS.txt`
+
+如果缺少对应平台的安装包或校验文件，客户端会展示原因并禁止直接安装。详细流程见
+[软件更新](updates.md)。
 
 不要并行执行 `dotnet publish` 和 `ISCC.exe`：安装器会读取发布目录，并发可能造成
 缺文件或旧文件混入。

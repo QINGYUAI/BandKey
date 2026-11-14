@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -78,6 +79,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import java.io.File
 import java.security.KeyPair
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -421,6 +423,7 @@ private fun BandKeyScreen(
     var nfcDeleteTarget by remember { mutableStateOf<NfcKeyRecord?>(null) }
     var nfcOverwriteTarget by remember { mutableStateOf<NfcOverwriteTarget?>(null) }
     var nfcLastPurpose by remember { mutableStateOf(NfcScanPurpose.UNLOCK) }
+    var updateCheck by remember { mutableStateOf(UpdateManager.latestCheck) }
 
     val credentialReady = pcStatus.online
         && pcStatus.paired
@@ -441,6 +444,20 @@ private fun BandKeyScreen(
                 .onFailure {
                     status = "配对信息已损坏，请重新配对"
                 }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val result = UpdateManager.autoCheckIfDue(context)
+        if (result != null) {
+            updateCheck = result
+            if (result.hasUpdate) {
+                Toast.makeText(
+                    context,
+                    "发现 BandKey v${result.latestVersion} 更新",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 
@@ -1323,6 +1340,8 @@ private fun BandKeyScreen(
                             nfcKeysCount = nfcKeys.size,
                             nfcAvailability = nfcAvailability,
                             nfcAutoUnlock = nfcAutoUnlock,
+                            updateCheck = updateCheck,
+                            onUpdateCheckChange = { updateCheck = it },
                             onModeChange = { value ->
                                 mode = value
                                 onModeChange(value)
@@ -2488,6 +2507,8 @@ private fun SettingsScreen(
     nfcKeysCount: Int,
     nfcAvailability: NfcAvailability,
     nfcAutoUnlock: Boolean,
+    updateCheck: UpdateCheckResult?,
+    onUpdateCheckChange: (UpdateCheckResult?) -> Unit,
     onModeChange: (String) -> Unit,
     onUrlChange: (String) -> Unit,
     onDeviceNameChange: (String) -> Unit,
@@ -2497,7 +2518,17 @@ private fun SettingsScreen(
     onRequestUnpair: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val updateScope = rememberCoroutineScope()
     val paired = deviceId.isNotEmpty()
+    var checkedUpdate by remember(updateCheck) { mutableStateOf(updateCheck) }
+    var updateBusy by remember { mutableStateOf(false) }
+    var updateDownloading by remember { mutableStateOf(false) }
+    var updateProgress by remember { mutableStateOf(0) }
+    var downloadedApk by remember { mutableStateOf<File?>(null) }
+    var updateMessage by remember {
+        mutableStateOf("可手动检查更新，App 启动时每 24 小时自动检查一次。")
+    }
+    var updateMessageTone by remember { mutableStateOf(Bk.Muted) }
     var nfcLastEvent by remember { mutableStateOf(NfcDiagnostics.lastEvent(context)) }
     var nfcTagIntentState by remember { mutableStateOf(NfcTagIntentAccess.read(context)) }
     val nfcLifecycleOwner = LocalLifecycleOwner.current
@@ -2515,6 +2546,84 @@ private fun SettingsScreen(
         VendorSettings.isXiaomi() || VendorSettings.isHuaweiOrHonor()
     }
     val isXiaomi = remember { VendorSettings.isXiaomi() }
+    val openExternal: (String) -> Unit = { url ->
+        if (!UpdateManager.openUrl(context, url)) {
+            Toast.makeText(context, "无法打开浏览器，请手动访问：$url", Toast.LENGTH_LONG).show()
+        }
+    }
+    val runUpdateCheck: () -> Unit = {
+        if (!updateBusy) {
+            updateScope.launch {
+                updateBusy = true
+                updateDownloading = false
+                downloadedApk = null
+                updateMessage = "正在连接 GitHub Release…"
+                updateMessageTone = Bk.Muted
+                try {
+                    val result = UpdateManager.checkForUpdate()
+                    UpdateManager.markCheckCompleted(context)
+                    checkedUpdate = result
+                    onUpdateCheckChange(result)
+                    if (result.hasUpdate) {
+                        val canInstall = result.apkUrl != null && result.checksumsUrl != null
+                        updateMessage = if (canInstall) {
+                            "发现 v${result.latestVersion}，下载后会自动校验 SHA-256。"
+                        } else {
+                            "发现 v${result.latestVersion}，但 Release 缺少 APK 或校验文件。"
+                        }
+                        updateMessageTone = if (canInstall) Bk.Mint else Bk.Amber
+                    } else {
+                        updateMessage = "当前 v${result.currentVersion} 已是官方稳定版。"
+                        updateMessageTone = Bk.Muted
+                    }
+                } catch (error: Exception) {
+                    updateMessage = "检查失败：${error.message ?: "未知错误"}"
+                    updateMessageTone = Bk.Coral
+                } finally {
+                    updateBusy = false
+                }
+            }
+        }
+    }
+    val installOrDownloadUpdate: () -> Unit = {
+        val result = checkedUpdate
+        if (!updateBusy && result != null && result.hasUpdate) {
+            updateScope.launch {
+                updateBusy = true
+                try {
+                    var apk = downloadedApk
+                    if (apk == null || !apk.exists()) {
+                        updateDownloading = true
+                        updateProgress = 0
+                        updateMessage = "正在下载 Android 安装包…"
+                        updateMessageTone = Bk.Iris
+                        apk = UpdateManager.downloadAndVerify(context, result) { percent ->
+                            updateScope.launch { updateProgress = percent }
+                        }
+                        downloadedApk = apk
+                        updateMessage = "下载完成，APK 已通过 SHA-256 校验。"
+                        updateMessageTone = Bk.Mint
+                        updateDownloading = false
+                    }
+
+                    val launched = UpdateManager.installApk(context, apk)
+                    if (launched) {
+                        updateMessage = "已交给系统安装器，请按系统提示完成覆盖安装。"
+                        updateMessageTone = Bk.Mint
+                    } else {
+                        updateMessage = "请允许 BandKey 安装未知应用，返回后再次点击安装。"
+                        updateMessageTone = Bk.Amber
+                    }
+                } catch (error: Exception) {
+                    updateMessage = "更新失败：${error.message ?: "未知错误"}"
+                    updateMessageTone = Bk.Coral
+                    updateDownloading = false
+                } finally {
+                    updateBusy = false
+                }
+            }
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -2978,6 +3087,187 @@ private fun SettingsScreen(
                     text = "如果 Windows 密码变更，需要在电脑托盘重新设置解锁凭据。",
                     tone = Bk.Dim,
                     glyph = BkGlyph.KEY
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            val hasUpdate = checkedUpdate?.hasUpdate == true
+            val canInstallUpdate = hasUpdate &&
+                checkedUpdate?.apkUrl != null &&
+                checkedUpdate?.checksumsUrl != null
+            SettingCard(
+                title = "软件更新",
+                subtitle = "从官方 GitHub Release 检查稳定版，安装前校验 SHA-256。",
+                statusText = when {
+                    updateDownloading -> "DOWNLOAD"
+                    updateBusy -> "CHECKING"
+                    hasUpdate -> "NEW"
+                    checkedUpdate != null -> "LATEST"
+                    else -> "READY"
+                },
+                statusTone = when {
+                    updateDownloading -> Bk.Iris
+                    updateBusy -> Bk.Amber
+                    hasUpdate -> Bk.Mint
+                    checkedUpdate != null -> Bk.Muted
+                    else -> Bk.Iris
+                }
+            ) {
+                InfoRow(
+                    label = "当前版本",
+                    value = "v${BuildConfig.VERSION_NAME}",
+                    mono = true
+                )
+                InfoRow(
+                    label = "官方最新版",
+                    value = checkedUpdate?.let { "v${it.latestVersion}" } ?: "待检查",
+                    valueColor = if (hasUpdate) Bk.Mint else Bk.Muted,
+                    mono = true
+                )
+                InfoRow(label = "发布渠道", value = "GitHub Releases")
+                InfoRow(label = "自动检查", value = "启动时 / 每 24 小时")
+                InfoRow(
+                    label = "完整性校验",
+                    value = "SHA-256",
+                    valueColor = Bk.Mint,
+                    mono = true
+                )
+
+                if (updateDownloading) {
+                    Spacer(Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Bk.Surface2)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(updateProgress.coerceIn(0, 100) / 100f)
+                                .fillMaxHeight()
+                                .background(
+                                    Brush.horizontalGradient(listOf(Bk.Mint, Bk.Iris))
+                                )
+                        )
+                    }
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        text = "DOWNLOADING · ${updateProgress.coerceIn(0, 100)}%",
+                        color = Bk.Dim,
+                        fontSize = 8.sp,
+                        letterSpacing = 0.9.sp
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
+                StatusNote(
+                    text = updateMessage,
+                    tone = updateMessageTone,
+                    glyph = when {
+                        hasUpdate -> BkGlyph.REFRESH
+                        updateMessageTone == Bk.Coral -> BkGlyph.ALERT
+                        else -> BkGlyph.CHECK
+                    }
+                )
+                Spacer(Modifier.height(10.dp))
+                if (canInstallUpdate) {
+                    PrimaryAction(
+                        text = when {
+                            updateDownloading -> "正在下载更新"
+                            downloadedApk != null -> "安装 v${checkedUpdate?.latestVersion}"
+                            else -> "下载并安装 v${checkedUpdate?.latestVersion}"
+                        },
+                        secondaryText = "APK · SHA-256 VERIFIED",
+                        enabled = !updateBusy,
+                        busy = updateDownloading,
+                        glyph = BkGlyph.REFRESH,
+                        onClick = installOrDownloadUpdate,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    SecondaryAction(
+                        text = "重新检查更新",
+                        onClick = runUpdateCheck,
+                        enabled = !updateBusy,
+                        glyph = BkGlyph.REFRESH,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    SecondaryAction(
+                        text = if (updateBusy) "正在检查更新" else "检查更新",
+                        onClick = runUpdateCheck,
+                        enabled = !updateBusy,
+                        glyph = BkGlyph.REFRESH,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                if (checkedUpdate != null) {
+                    Spacer(Modifier.height(8.dp))
+                    SecondaryAction(
+                        text = "查看版本说明",
+                        onClick = {
+                            openExternal(checkedUpdate?.releaseUrl ?: UpdateManager.RELEASES_URL)
+                        },
+                        glyph = BkGlyph.LINK,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            SettingCard(
+                title = "仓库与文档",
+                subtitle = "查看源码、使用说明、发布记录和问题反馈。",
+                statusText = "GITHUB",
+                statusTone = Bk.Iris
+            ) {
+                InfoRow(
+                    label = "项目仓库",
+                    value = "QINGYUAI / BandKey",
+                    valueColor = Bk.Iris
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SecondaryAction(
+                        text = "仓库首页",
+                        onClick = { openExternal(UpdateManager.REPOSITORY_URL) },
+                        glyph = BkGlyph.LINK,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SecondaryAction(
+                        text = "使用文档",
+                        onClick = { openExternal(UpdateManager.DOCS_URL) },
+                        glyph = BkGlyph.SHIELD,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SecondaryAction(
+                        text = "最新版本",
+                        onClick = { openExternal(UpdateManager.RELEASES_URL) },
+                        glyph = BkGlyph.CHECK,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SecondaryAction(
+                        text = "问题反馈",
+                        onClick = { openExternal(UpdateManager.ISSUES_URL) },
+                        glyph = BkGlyph.ALERT,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                StatusNote(
+                    text = "侧载 APK 由 GitHub Release 分发；更新不会静默安装，始终由你确认系统安装器。",
+                    tone = Bk.Dim,
+                    glyph = BkGlyph.LINK
                 )
             }
 

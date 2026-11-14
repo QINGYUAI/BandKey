@@ -1,6 +1,6 @@
 # BandKey 协议 v2：状态查询与最终解锁回执
 
-> 适用版本：`1.8.5` · [文档索引](README.md) · [通信协议](protocol.md) ·
+> 适用版本：`1.8.6` · [文档索引](README.md) · [通信协议](protocol.md) ·
 > [安全模型](security.md)
 
 协议 v2 修正了两个状态语义：
@@ -23,7 +23,7 @@
   "type": "status_result",
   "payload": {
     "protocolVersion": 2,
-    "serverVersion": "1.8.5",
+    "serverVersion": "1.8.6",
     "pcName": "DESKTOP-ABC",
     "online": true,
     "paired": true,

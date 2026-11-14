@@ -1,6 +1,6 @@
 # BandKey 文档
 
-本文档适用于 BandKey `1.8.5`。如果你只想安装和使用，先阅读
+本文档适用于 BandKey `1.8.6`。如果你只想安装和使用，先阅读
 [快速开始](getting-started.md)；需要改代码或发布版本时，再阅读
 [开发与发布](development.md)。
 
@@ -14,6 +14,7 @@
 | 了解密钥、凭据、权限和威胁边界 | [安全模型](security.md) |
 | 处理连接、配对、解锁和日志问题 | [故障排查](troubleshooting.md) |
 | 编译、测试、打包和发布 | [开发与发布](development.md) |
+| 检查更新、校验安装包、发布兼容要求 | [软件更新](updates.md) |
 | 查看版本变化 | [版本记录](release-notes.md) |
 | 查看通信消息、签名和内部管道 | [通信协议](protocol.md) / [协议 v2 状态](protocol-v2-status.md) |
 | 查看页面设计稿和实现记录 | [设计文档](design/README.md) |
@@ -30,6 +31,7 @@ docs/
 ├── security.md                信任边界、凭据存储、威胁模型
 ├── troubleshooting.md         症状式排障、日志、错误码
 ├── development.md             环境、构建、测试、GitHub Release
+├── updates.md                 应用内更新、SHA-256 校验和发布约束
 ├── release-notes.md           1.8.x 版本记录
 ├── protocol.md                业务消息、签名、配对、解锁
 ├── protocol-v2-status.md      状态查询和最终解锁回执
@@ -48,7 +50,7 @@ docs/
 
 ## 文档约定
 
-- 版本号以 `installer\BandKey.iss` 的 `AppVersion` 为准，当前为 `1.8.5`。
+- 版本号以 `installer\BandKey.iss` 的 `AppVersion` 为准，当前为 `1.8.6`。
 - Windows 路径默认使用反斜杠，命令默认在 PowerShell 中执行。
 - “电脑端”指 Windows 服务、托盘和凭据提供程序的组合，不单指某一个进程。
 - NFC 自动解锁属于 Android 系统分发能力，受手机厂商策略影响；文档会明确区分“已实现”和“已验证范围”。

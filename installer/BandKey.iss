@@ -4,7 +4,10 @@
 ;   dotnet publish windows\BandKeyTray     -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
 ; 并用 CMake 编译 BandKeyCredentialProvider.dll
 
-#define AppVersion "1.8.5"
+#define AppVersion "1.8.6"
+#define RepositoryUrl "https://github.com/QINGYUAI/BandKey"
+#define DocsUrl "https://github.com/QINGYUAI/BandKey/tree/main/docs"
+#define ReleasesUrl "https://github.com/QINGYUAI/BandKey/releases/latest"
 
 [Setup]
 AppName=电脑钥匙
@@ -13,9 +16,13 @@ AppName=电脑钥匙
 AppId=电脑钥匙
 AppVersion={#AppVersion}
 AppPublisher=科技包
+AppPublisherURL={#RepositoryUrl}
+AppSupportURL={#DocsUrl}
+AppUpdatesURL={#ReleasesUrl}
 DefaultDirName={autopf}\BandKey
 DefaultGroupName=电脑钥匙
 DisableProgramGroupPage=yes
+DisableWelcomePage=no
 OutputDir=..\dist\{#AppVersion}
 OutputBaseFilename=BandKey-{#AppVersion}-windows-x64
 Compression=lzma2
@@ -24,6 +31,29 @@ ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 PrivilegesRequired=admin
 UninstallDisplayIcon={app}\BandKeyTray.exe
+SetupIconFile=assets\BandKey.ico
+WizardStyle=modern dynamic
+WizardImageFile=assets\wizard-large.png
+WizardImageFileDynamicDark=assets\wizard-large.png
+WizardImageStretch=no
+WizardSmallImageFile=assets\wizard-small.png
+WizardSmallImageFileDynamicDark=assets\wizard-small.png
+VersionInfoVersion={#AppVersion}
+VersionInfoCompany=科技包
+VersionInfoDescription=BandKey 电脑钥匙安装程序
+VersionInfoProductName=电脑钥匙
+VersionInfoProductVersion={#AppVersion}
+
+[Languages]
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
+
+[Messages]
+SetupAppTitle=安装程序
+SetupWindowTitle=安装 %1
+WelcomeLabel1=部署你的无感解锁工作站
+WelcomeLabel2=即将安装 [name/ver]。%n%n安装包含 Windows 服务、托盘控制中心与登录凭据组件。安装前请保存工作并关闭其他应用程序。
+FinishedHeadingLabel=安装完成
+FinishedLabel=[name] 已安装到你的电脑。%n%n请重启电脑，让登录界面加载新的凭据组件。%n%n版本说明与软件更新可在托盘的「检查软件更新」中查看。
 
 [Files]
 Source: "..\windows\BandKeyService\bin\Release\net8.0\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs

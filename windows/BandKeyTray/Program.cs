@@ -16,9 +16,11 @@ internal static class Program
     private static BleUnlockServer? _ble;
     private static TrayPopoverForm? _popover;
     private static System.Windows.Forms.Timer? _startupTimer;
+    private static System.Windows.Forms.Timer? _updateTimer;
     private static string? _lastNotifiedPin;
     private static bool _polling;
     private static bool _exiting;
+    private static bool _updateNotificationPending;
 
     [STAThread]
     private static void Main(string[] args)
@@ -64,6 +66,9 @@ internal static class Program
         menu.Items.Add("重新开始蓝牙广播", null, (_, _) => RestartBle());
         menu.Items.Add("打开日志目录", null, (_, _) => OpenLogDirectory());
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("检查软件更新…", null, (_, _) => ShowUpdateDialog());
+        menu.Items.Add("仓库与使用文档", null, (_, _) => OpenDocumentation());
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("退出", null, (_, _) => ExitApplication());
 
         PairingItem.Click += (_, _) => ShowPairingPin();
@@ -77,10 +82,30 @@ internal static class Program
 
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => ShowControlCenter();
+        _tray.BalloonTipClicked += (_, _) =>
+        {
+            if (!_updateNotificationPending)
+            {
+                return;
+            }
+
+            _updateNotificationPending = false;
+            ShowUpdateDialog();
+        };
 
         var timer = new System.Windows.Forms.Timer { Interval = 3000 };
         timer.Tick += (_, _) => _ = PollAsync();
         timer.Start();
+
+        _updateTimer = new System.Windows.Forms.Timer { Interval = 7000 };
+        _updateTimer.Tick += async (_, _) =>
+        {
+            _updateTimer?.Stop();
+            _updateTimer?.Dispose();
+            _updateTimer = null;
+            await AutoCheckUpdatesAsync();
+        };
+        _updateTimer.Start();
 
         if (args.Any(argument =>
                 string.Equals(argument, "--control-center", StringComparison.OrdinalIgnoreCase)))
@@ -103,6 +128,13 @@ internal static class Program
     private static bool TryShowPreview(string[] args)
     {
         var now = DateTimeOffset.UtcNow;
+        if (args.Any(argument =>
+                string.Equals(argument, "--preview-update", StringComparison.OrdinalIgnoreCase)))
+        {
+            Application.Run(new UpdateDialog());
+            return true;
+        }
+
         if (args.Any(argument =>
                 string.Equals(argument, "--preview-pairing", StringComparison.OrdinalIgnoreCase)))
         {
@@ -164,7 +196,9 @@ internal static class Program
             ShowDevices,
             ShowCredentialDialog,
             RestartBle,
-            OpenLogDirectory);
+            OpenLogDirectory,
+            ShowUpdateDialog,
+            OpenDocumentation);
         _popover.FormClosed += (_, _) => _popover = null;
         _popover.ShowNearTray();
     }
@@ -182,6 +216,9 @@ internal static class Program
             _startupTimer?.Stop();
             _startupTimer?.Dispose();
             _startupTimer = null;
+            _updateTimer?.Stop();
+            _updateTimer?.Dispose();
+            _updateTimer = null;
             _popover?.Close();
             _popover = null;
 
@@ -268,6 +305,62 @@ internal static class Program
         finally
         {
             _polling = false;
+        }
+    }
+
+    private static async Task AutoCheckUpdatesAsync()
+    {
+        if (!UpdateChecker.IsAutoCheckDue())
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await UpdateChecker.CheckAsync();
+            UpdateChecker.MarkAutoCheckCompleted();
+            if (!result.IsNewer)
+            {
+                return;
+            }
+
+            _updateNotificationPending = true;
+            _tray?.ShowBalloonTip(
+                10_000,
+                "发现 BandKey 新版本",
+                $"v{result.Release.VersionName} 已发布\n点击查看版本说明并更新",
+                ToolTipIcon.Info);
+            TrayLog.Write($"update available: {result.Release.VersionName}");
+        }
+        catch (Exception ex)
+        {
+            TrayLog.Write("auto update check failed: " + ex.Message);
+        }
+    }
+
+    private static void ShowUpdateDialog()
+    {
+        _updateNotificationPending = false;
+        using var dialog = new UpdateDialog();
+        if (_popover is { IsDisposed: false, Visible: true })
+        {
+            dialog.ShowDialog(_popover);
+        }
+        else
+        {
+            dialog.ShowDialog();
+        }
+    }
+
+    private static void OpenDocumentation()
+    {
+        if (!UpdateChecker.OpenExternal(UpdateChecker.DocsUrl))
+        {
+            TechMessageBox.Show(
+                null,
+                "无法打开默认浏览器，请手动访问：\n" + UpdateChecker.DocsUrl,
+                "打开文档失败",
+                TechMessageKind.Warning);
         }
     }
 

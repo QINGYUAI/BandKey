@@ -14,9 +14,12 @@ internal sealed class TrayPopoverForm : TechForm
     private readonly Action _showCredential;
     private readonly Action _restartBle;
     private readonly Action _openLog;
+    private readonly Action _showUpdates;
+    private readonly Action _openDocs;
     private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = 2000 };
 
     private readonly TechStatusPill _servicePill = new();
+    private readonly ToolTip _versionTip = new();
     private readonly Label _version = new();
     private readonly Label _heroKicker = new();
     private readonly Label _heroTitle = new();
@@ -43,7 +46,9 @@ internal sealed class TrayPopoverForm : TechForm
         Action showDevices,
         Action showCredential,
         Action restartBle,
-        Action openLog)
+        Action openLog,
+        Action showUpdates,
+        Action openDocs)
         : base("控制中心", new Size(560, 780))
     {
         _api = api;
@@ -53,6 +58,8 @@ internal sealed class TrayPopoverForm : TechForm
         _showCredential = showCredential;
         _restartBle = restartBle;
         _openLog = openLog;
+        _showUpdates = showUpdates;
+        _openDocs = openDocs;
 
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
@@ -65,7 +72,11 @@ internal sealed class TrayPopoverForm : TechForm
             _pollTimer.Start();
             _ = RefreshAsync();
         };
-        FormClosed += (_, _) => _pollTimer.Dispose();
+        FormClosed += (_, _) =>
+        {
+            _pollTimer.Dispose();
+            _versionTip.Dispose();
+        };
     }
 
     public void ShowNearTray()
@@ -119,8 +130,11 @@ internal sealed class TrayPopoverForm : TechForm
         _version.Font = TechPalette.Mono;
         _version.ForeColor = TechPalette.Dim;
         _version.BackColor = Color.Transparent;
+        _version.Cursor = Cursors.Hand;
         _version.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _version.Location = new Point(statusRow.Width - _version.Width, 8);
+        _versionTip.SetToolTip(_version, "检查软件更新");
+        _version.Click += (_, _) => _showUpdates();
         statusRow.Controls.Add(_servicePill);
         statusRow.Controls.Add(_version);
         statusRow.Resize += (_, _) => _version.Left = Math.Max(0, statusRow.Width - _version.Width);
@@ -326,13 +340,43 @@ internal sealed class TrayPopoverForm : TechForm
         logLink.MouseEnter += (_, _) => logLink.ForeColor = TechPalette.Mint;
         logLink.MouseLeave += (_, _) => logLink.ForeColor = TechPalette.Dim;
         logLink.Click += (_, _) => _openLog();
+        var docsLink = new Label
+        {
+            Text = "文档  ›",
+            AutoSize = true,
+            Font = TechPalette.Caption,
+            ForeColor = TechPalette.Dim,
+            BackColor = Color.Transparent,
+            Cursor = Cursors.Hand,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+        docsLink.MouseEnter += (_, _) => docsLink.ForeColor = TechPalette.Mint;
+        docsLink.MouseLeave += (_, _) => docsLink.ForeColor = TechPalette.Dim;
+        docsLink.Click += (_, _) => _openDocs();
+        var updateLink = new Label
+        {
+            Text = "更新  ›",
+            AutoSize = true,
+            Font = TechPalette.Caption,
+            ForeColor = TechPalette.Dim,
+            BackColor = Color.Transparent,
+            Cursor = Cursors.Hand,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+        updateLink.MouseEnter += (_, _) => updateLink.ForeColor = TechPalette.Mint;
+        updateLink.MouseLeave += (_, _) => updateLink.ForeColor = TechPalette.Dim;
+        updateLink.Click += (_, _) => _showUpdates();
         footer.Controls.Add(local);
+        footer.Controls.Add(docsLink);
+        footer.Controls.Add(updateLink);
         footer.Controls.Add(logLink);
         footer.Controls.Add(platform);
         footer.Resize += (_, _) =>
         {
             platform.Left = Math.Max(0, footer.Width - platform.Width);
             logLink.Left = Math.Max(local.Right + 12, platform.Left - logLink.Width - 20);
+            updateLink.Left = Math.Max(0, logLink.Left - updateLink.Width - 12);
+            docsLink.Left = Math.Max(0, updateLink.Left - docsLink.Width - 12);
         };
 
         root.Controls.Add(statusRow, 0, 0);

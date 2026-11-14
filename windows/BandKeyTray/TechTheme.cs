@@ -737,7 +737,25 @@ internal sealed class TechProgress : Control
 
 internal sealed class TechNote : Panel
 {
-    private readonly Color _tone;
+    private readonly Label _label;
+    private Color _tone;
+
+    public string NoteText
+    {
+        get => _label.Text;
+        set => _label.Text = value;
+    }
+
+    public Color Tone
+    {
+        get => _tone;
+        set
+        {
+            _tone = value;
+            _label.ForeColor = value;
+            Invalidate();
+        }
+    }
 
     public TechNote(string text, Color tone)
     {
@@ -751,7 +769,7 @@ internal sealed class TechNote : Panel
         BackColor = TechPalette.Background;
         Padding = new Padding(18, 10, 14, 10);
 
-        var label = new Label
+        _label = new Label
         {
             Text = text,
             Dock = DockStyle.Fill,
@@ -761,7 +779,7 @@ internal sealed class TechNote : Panel
             BackColor = Color.Transparent,
             Font = TechPalette.Body
         };
-        Controls.Add(label);
+        Controls.Add(_label);
     }
 
     protected override void OnPaint(PaintEventArgs e)

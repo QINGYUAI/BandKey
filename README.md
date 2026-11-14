@@ -4,7 +4,7 @@
 Android 客户端、Windows 服务、Winlogon 凭据提供程序、BLE/局域网通道、托盘程序和
 安装脚本。
 
-> 当前版本：`1.8.5` · [下载最新版](https://github.com/QINGYUAI/BandKey/releases/latest) ·
+> 当前版本：`1.8.6` · [下载最新版](https://github.com/QINGYUAI/BandKey/releases/latest) ·
 > [快速开始](docs/getting-started.md) · [文档索引](docs/README.md)
 
 ## 功能
@@ -16,8 +16,11 @@ Android 客户端、Windows 服务、Winlogon 凭据提供程序、BLE/局域网
 - **锁屏/息屏 NFC 自动解锁**：开启后由 Android NFC 系统分发启动，不要求 App 在
   前台；实际可用性受手机厂商策略影响。
 - **桌面小组件**：支持 Android/MIUI 不同尺寸的一键解锁、状态展示和 NFC 开关。
+- **应用内更新**：Windows 托盘和 Android 设置页均可检查 GitHub Stable Release，
+  下载后校验 SHA-256，再由用户确认安装。
 - **本机凭据保护**：Windows 密码由 DPAPI `LocalMachine` 加密，CP 不联网。
 - **科技风控制中心**：托盘、配对、设备和凭据窗口使用统一的“信任仪表”视觉。
+- **品牌化安装体验**：安装器使用深色安全仪表欢迎页、专属图标和中文安装说明。
 
 ## 工作方式
 
@@ -185,6 +188,7 @@ dist\latest\BandKey.apk
 | [安全模型](docs/security.md) | 密钥、DPAPI、信任边界和威胁模型 |
 | [故障排查](docs/troubleshooting.md) | 服务、连接、凭据、CP、NFC 和日志 |
 | [开发与发布](docs/development.md) | 环境、构建、测试、打包和 GitHub Release |
+| [软件更新](docs/updates.md) | 应用内检查、下载校验、安装授权和发布约束 |
 | [版本记录](docs/release-notes.md) | 1.8.x 版本变化和升级说明 |
 | [通信协议](docs/protocol.md) | 消息、签名、配对、解锁和错误码 |
 | [协议 v2 状态](docs/protocol-v2-status.md) | 状态查询、最终回执和内部管道 |
@@ -193,9 +197,9 @@ dist\latest\BandKey.apk
 ## 版本状态
 
 - 协议版本：v2
-- Android：`1.8.5` / `versionCode 12`
-- Windows Service / Tray：`1.8.5`
-- 最新 Release：[v1.8.5](https://github.com/QINGYUAI/BandKey/releases/tag/v1.8.5)
+- Android：`1.8.6` / `versionCode 13`
+- Windows Service / Tray：`1.8.6`
+- 最新 Release：[v1.8.6](https://github.com/QINGYUAI/BandKey/releases/tag/v1.8.6)
 
 已知待完善：真实 Winlogon 全链路回归、证书登录、心跳与连接状态可视化、安装包体积
 优化。
