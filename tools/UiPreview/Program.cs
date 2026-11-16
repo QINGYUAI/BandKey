@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Windows.Forms;
 
@@ -40,10 +41,42 @@ internal static class Program
         {
             "pairing" => CreatePairing(assembly),
             "devices" => CreateDevices(assembly),
+            "popover" => CreatePopover(assembly),
             _ => (Form)Activator.CreateInstance(
                 assembly.GetType("BandKeyTray.CredentialDialog", true)!,
                 nonPublic: true)!
         };
+    }
+
+    private static Form CreatePopover(Assembly assembly)
+    {
+        var apiType = assembly.GetType("BandKeyTray.ServiceApi", true)!;
+        var api = Activator.CreateInstance(apiType, nonPublic: true)!;
+        var stateType = assembly.GetType("BandKeyTray.BleUiState", true)!;
+        var state = Activator.CreateInstance(stateType, "蓝牙广播中", true, 0)!;
+        var stateFactoryType = typeof(Func<>).MakeGenericType(stateType);
+        var stateFactory = Expression.Lambda(
+            stateFactoryType,
+            Expression.Constant(state, stateType)).Compile();
+        Action noOp = static () => { };
+        var popoverType = assembly.GetType("BandKeyTray.TrayPopoverForm", true)!;
+        return (Form)Activator.CreateInstance(
+            popoverType,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            args: new object[]
+            {
+                api,
+                stateFactory,
+                noOp,
+                noOp,
+                noOp,
+                noOp,
+                noOp,
+                noOp,
+                noOp
+            },
+            culture: null)!;
     }
 
     private static Form CreatePairing(Assembly assembly)

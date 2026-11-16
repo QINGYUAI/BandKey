@@ -2,11 +2,18 @@ using System.Text.Json;
 
 namespace BandKeyService;
 
-public sealed record Device(string DeviceId, string Name, string PublicKey, DateTimeOffset CreatedAt);
+public sealed record Device(
+    string DeviceId,
+    string Name,
+    string PublicKey,
+    DateTimeOffset CreatedAt,
+    string? InstallId = null,
+    DateTimeOffset? LastPairedAt = null);
 
 public sealed class DeviceStore
 {
     private const int MaxDeviceNameLength = 64;
+    private const int MaxInstallIdLength = 64;
 
     private readonly string _path;
     private readonly string _backupPath;
@@ -65,16 +72,40 @@ public sealed class DeviceStore
         }
     }
 
-    public Device Add(string name, string publicKey)
+    public Device Add(string name, string publicKey, string? installId = null)
     {
         lock (_gate)
         {
             var normalizedName = NormalizeDeviceName(name);
             var normalizedKey = publicKey.Trim();
-            var existingIndex = _devices.FindIndex(d => d.PublicKey == normalizedKey);
+            var normalizedInstallId = NormalizeInstallId(installId);
+            var now = DateTimeOffset.UtcNow;
+            var existingIndex = normalizedInstallId is null
+                ? -1
+                : _devices.FindIndex(d => string.Equals(
+                    d.InstallId,
+                    normalizedInstallId,
+                    StringComparison.Ordinal));
+            if (existingIndex < 0)
+            {
+                existingIndex = _devices.FindIndex(d => d.PublicKey == normalizedKey);
+            }
+
             var device = existingIndex >= 0
-                ? _devices[existingIndex] with { Name = normalizedName }
-                : new Device(Guid.NewGuid().ToString("N"), normalizedName, normalizedKey, DateTimeOffset.UtcNow);
+                ? _devices[existingIndex] with
+                {
+                    Name = normalizedName,
+                    PublicKey = normalizedKey,
+                    InstallId = _devices[existingIndex].InstallId ?? normalizedInstallId,
+                    LastPairedAt = now
+                }
+                : new Device(
+                    Guid.NewGuid().ToString("N"),
+                    normalizedName,
+                    normalizedKey,
+                    now,
+                    normalizedInstallId,
+                    now);
 
             var next = _devices.ToList();
             if (existingIndex >= 0)
@@ -188,6 +219,7 @@ public sealed class DeviceStore
         }
 
         var seenKeys = new HashSet<string>(StringComparer.Ordinal);
+        var seenInstallIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var device in devices)
         {
             if (device is null
@@ -203,11 +235,18 @@ public sealed class DeviceStore
                 continue;
             }
 
+            var installId = NormalizeInstallId(device.InstallId);
+            if (installId is not null && !seenInstallIds.Add(installId))
+            {
+                continue;
+            }
+
             result.Add(device with
             {
                 DeviceId = device.DeviceId.Trim(),
                 Name = NormalizeDeviceName(device.Name),
-                PublicKey = publicKey
+                PublicKey = publicKey,
+                InstallId = installId
             });
         }
 
@@ -225,6 +264,23 @@ public sealed class DeviceStore
         return normalized.Length <= MaxDeviceNameLength
             ? normalized
             : normalized[..MaxDeviceNameLength];
+    }
+
+    private static string? NormalizeInstallId(string? installId)
+    {
+        var normalized = (installId ?? "").Trim();
+        if (normalized.Length == 0)
+        {
+            return null;
+        }
+
+        if (normalized.Length > MaxInstallIdLength
+            || normalized.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '-' and not '_'))
+        {
+            return null;
+        }
+
+        return normalized;
     }
 
     private static readonly JsonSerializerOptions JsonOpts = new()

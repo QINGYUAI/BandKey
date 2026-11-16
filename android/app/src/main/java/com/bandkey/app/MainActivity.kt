@@ -497,7 +497,10 @@ private fun BandKeyScreen(
         }
     }
 
-    suspend fun runWithTransport(block: suspend (ProtocolClient) -> Unit) {
+    suspend fun runWithTransport(
+        updateUi: Boolean = true,
+        block: suspend (ProtocolClient) -> Unit
+    ) {
         val primary = if (mode == "ble") {
             ProtocolClient(BleTransport(context))
         } else {
@@ -506,19 +509,27 @@ private fun BandKeyScreen(
 
         try {
             block(primary)
-            activeChannel = if (mode == "ble") "ble" else "lan"
+            if (updateUi) {
+                activeChannel = if (mode == "ble") "ble" else "lan"
+            }
         } catch (first: Exception) {
             if (mode != "ble" || first is ProtocolException) {
                 throw first
             }
 
-            status = "蓝牙通道不可用，尝试局域网备用通道…"
+            if (updateUi) {
+                status = "蓝牙通道不可用，尝试局域网备用通道…"
+            }
             val fallback = ProtocolClient(LanTransport(hostFromUrl(serverUrl)))
             try {
                 block(fallback)
-                activeChannel = "lan"
+                if (updateUi) {
+                    activeChannel = "lan"
+                }
             } catch (second: Exception) {
-                activeChannel = null
+                if (updateUi) {
+                    activeChannel = null
+                }
                 if (second is ProtocolException) {
                     throw second
                 }
@@ -651,11 +662,13 @@ private fun BandKeyScreen(
             busy = true
             status = if (mode == "ble") "正在扫描电脑蓝牙…" else "正在连接服务…"
             try {
+                val deviceInstallId = withContext(Dispatchers.IO) { pairingStore.installId() }
                 runWithTransport { client ->
                     val pair = Crypto.generateKeyPair()
                     val id = client.pairChallenge(
                         pair,
-                        deviceName.ifBlank { "我的手机" }
+                        deviceName.ifBlank { "我的手机" },
+                        deviceInstallId
                     )
                     keyPair = pair
                     pairingId = id
@@ -945,21 +958,111 @@ private fun BandKeyScreen(
         }
     }
 
+    suspend fun retryPendingRevoke(): Boolean {
+        val pending = withContext(Dispatchers.IO) { pairingStore.loadPendingRevoke() } ?: return true
+        return try {
+            runWithTransport(updateUi = false) { client ->
+                client.revoke(
+                    RevokeTicket(
+                        deviceId = pending.deviceId,
+                        nonce = pending.nonce,
+                        signature = pending.signature
+                    )
+                )
+            }
+            withContext(Dispatchers.IO) { pairingStore.clearPendingRevoke() }
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val raw = e.message.orEmpty()
+            if (raw.contains("unknown_device") ||
+                raw.contains("bad_signature") ||
+                raw.contains("invalid_nonce")
+            ) {
+                withContext(Dispatchers.IO) { pairingStore.clearPendingRevoke() }
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        delay(800)
+        while (true) {
+            val pending = withContext(Dispatchers.IO) { pairingStore.loadPendingRevoke() }
+            if (pending != null && !busy) {
+                retryPendingRevoke()
+            }
+            delay(60_000)
+        }
+    }
+
     fun unpair() {
+        if (busy) {
+            return
+        }
         scope.launch {
-            withContext(Dispatchers.IO) { pairingStore.clear() }
-            BandKeyWidgetProvider.refresh(context)
-            keyPair = null
-            deviceId = ""
-            pairedAt = 0L
-            pairingId = null
-            pinInput = ""
-            pcStatus = PcStatus()
-            activeChannel = null
-            pendingUnpair = false
-            receipt = null
-            uiError = null
-            status = "已解除本机配对"
+            busy = true
+            val pair = keyPair
+            val currentDeviceId = deviceId
+            var finalStatus = "已解除本机配对"
+            try {
+                if (pair != null && currentDeviceId.isNotEmpty()) {
+                    val ticket = withContext(Dispatchers.Default) {
+                        createRevokeTicket(pair, currentDeviceId)
+                    }
+                    try {
+                        runWithTransport { client -> client.revoke(ticket) }
+                        withContext(Dispatchers.IO) { pairingStore.clearPendingRevoke() }
+                        finalStatus = "已解除配对并撤销电脑授权"
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        val raw = e.message.orEmpty()
+                        if (raw.contains("unknown_device") ||
+                            raw.contains("bad_signature") ||
+                            raw.contains("invalid_nonce")
+                        ) {
+                            withContext(Dispatchers.IO) { pairingStore.clearPendingRevoke() }
+                            finalStatus = "已解除本机配对，电脑端授权已不存在"
+                        } else {
+                            withContext(Dispatchers.IO) {
+                                pairingStore.savePendingRevoke(
+                                    PendingRevoke(
+                                        deviceId = ticket.deviceId,
+                                        nonce = ticket.nonce,
+                                        signature = ticket.signature,
+                                        createdAt = System.currentTimeMillis()
+                                    )
+                                )
+                            }
+                            finalStatus = if (raw.contains("unknown_type")) {
+                                "已解除本机配对；电脑端版本过旧，撤销将在升级后重试"
+                            } else {
+                                "已解除本机配对；电脑离线，撤销请求已排队"
+                            }
+                        }
+                    }
+                }
+
+                withContext(Dispatchers.IO) { pairingStore.clear() }
+                BandKeyWidgetProvider.refresh(context)
+                keyPair = null
+                deviceId = ""
+                pairedAt = 0L
+                pairingId = null
+                pinInput = ""
+                pcStatus = PcStatus()
+                activeChannel = null
+                pendingUnpair = false
+                receipt = null
+                uiError = null
+                status = finalStatus
+            } finally {
+                busy = false
+            }
         }
     }
 
@@ -3923,7 +4026,7 @@ private fun ConfirmUnpairOverlay(
             )
             Spacer(Modifier.height(7.dp))
             Text(
-                text = "本机保存的私钥和配对记录会被删除。之后必须重新配对才能解锁电脑。",
+                text = "本机私钥会被删除，并通知电脑撤销授权。若电脑离线，撤销请求会在下次连接时重试。",
                 color = Bk.Muted,
                 fontSize = 10.sp,
                 lineHeight = 16.sp,
@@ -4216,7 +4319,10 @@ private fun unlockError(raw: String): UiError {
             steps = listOf(
                 RecoveryStep("重新配对", "在电脑托盘确认设备列表，然后回到手机重新配对。"),
                 RecoveryStep("检查电脑端", "确认没有误删当前设备，或先恢复电脑端服务。"),
-                RecoveryStep("保存新私钥", "重新配对会生成新的设备密钥，旧密钥自动失效。")
+                RecoveryStep(
+                    "保存新私钥",
+                    "重新配对会生成新密钥；升级后的电脑端会为同一安装实例轮换原授权记录。"
+                )
             ),
             code = code
         )

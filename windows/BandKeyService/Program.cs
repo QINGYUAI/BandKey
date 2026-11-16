@@ -188,7 +188,14 @@ static void MapDevelopmentEndpoints(
     });
 
     app.MapGet("/devices", (HttpContext context) => IsLoopback(context)
-        ? Results.Json(store.Devices.Select(d => new { d.DeviceId, d.Name, d.CreatedAt }))
+        ? Results.Json(store.Devices.Select(d => new
+        {
+            d.DeviceId,
+            d.Name,
+            d.CreatedAt,
+            d.LastPairedAt,
+            installIdBound = !string.IsNullOrWhiteSpace(d.InstallId)
+        }))
         : Results.StatusCode(StatusCodes.Status403Forbidden));
 
     app.MapDelete("/devices/{id}", (string id, HttpContext context) =>

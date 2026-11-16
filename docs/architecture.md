@@ -91,6 +91,10 @@ BLE GATT 特征：
 
 PIN 不回传手机，手机只在本地输入。配对成功后，后续解锁只依赖手机私钥签名。
 
+`pair_request` 还会携带手机持久化的 `installId`。`DeviceStore` 优先按 `installId` 查找记录：
+同一安装实例重新配对时原地轮换公钥并保留 `DeviceId`，避免同一手机产生多条授权；
+旧版记录没有 `installId`，继续按公钥去重并在界面标记为“旧记录”。
+
 ## 解锁时序
 
 ```text

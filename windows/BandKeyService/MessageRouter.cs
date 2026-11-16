@@ -35,7 +35,10 @@ public static class MessageRouter
                         return Error("bad_request", "缺少 devicePublicKey");
                     }
 
-                    var (pairingId, _) = context.Pairing.StartPairing(request.DeviceName ?? "", request.DevicePublicKey);
+                    var (pairingId, _) = context.Pairing.StartPairing(
+                        request.DeviceName ?? "",
+                        request.DevicePublicKey,
+                        request.InstallId);
                     return Ok(MessageTypes.PairChallenge, new PairChallengeResponse(pairingId));
                 }
 
@@ -53,9 +56,32 @@ public static class MessageRouter
                         return Error(error, "配对确认失败");
                     }
 
-                    var device = context.Store.Add(pair.DeviceName, pair.PublicKey);
+                    var device = context.Store.Add(pair.DeviceName, pair.PublicKey, pair.InstallId);
                     context.AutoUnlock.NotifyBaseStateChanged();
                     return Ok(MessageTypes.PairSuccess, new PairSuccessResponse(device.DeviceId, device.Name));
+                }
+
+                case MessageTypes.DeviceRevoke:
+                {
+                    var request = Deserialize<DeviceRevokeRequest>(payload);
+                    if (request is null)
+                    {
+                        return Error("bad_request", "device_revoke 参数缺失");
+                    }
+
+                    var (verified, error) = context.Verifier.VerifyRevocation(request);
+                    if (!verified)
+                    {
+                        return Error(error, "撤销请求被拒绝");
+                    }
+
+                    var removed = context.Store.Remove(request.DeviceId!.Trim());
+                    if (removed)
+                    {
+                        context.AutoUnlock.NotifyBaseStateChanged();
+                    }
+
+                    return Ok(MessageTypes.DeviceRevokeResult, new DeviceRevokeResponse(true, removed));
                 }
 
                 case MessageTypes.Status:
@@ -176,6 +202,10 @@ public static class MessageRouter
         catch (CryptographicException)
         {
             return Error("bad_key", "公钥格式无效");
+        }
+        catch (ArgumentException ex)
+        {
+            return Error("bad_request", ex.Message);
         }
         catch (Exception ex)
         {

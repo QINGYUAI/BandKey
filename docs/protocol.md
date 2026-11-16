@@ -1,6 +1,6 @@
 # BandKey 通信协议 v2
 
-> 适用版本：`1.8.6` · [文档索引](README.md) · [系统架构](architecture.md) ·
+> 适用版本：`1.8.7` · [文档索引](README.md) · [系统架构](architecture.md) ·
 > [安全模型](security.md)
 
 手机（Android）与 Windows 服务（`BandKeyService`）之间使用同一套 JSON 消息与签名
@@ -49,10 +49,18 @@ NDJSON 通道要求每条消息以 `\n` 结尾。当前实现的消息上限：
   "type": "pair_request",
   "payload": {
     "deviceName": "Pixel 9 Pro",
-    "devicePublicKey": "<base64 SPKI>"
+    "devicePublicKey": "<base64 SPKI>",
+    "installId": "550e8400-e29b-41d4-a716-446655440000"
   }
 }
 ```
+
+`installId` 是手机 App 首次启动时生成并持久化的安装实例标识（1~64 位字母、数字、`-`、`_`），
+解除配对不会清除它。电脑端按 `installId` 识别“同一台手机的同一安装实例”：
+
+- 首次配对创建一条授权记录。
+- 同一 `installId` 再次配对时，原地轮换公钥并更新 `lastPairedAt`，`deviceId` 与创建时间保持不变，不新增记录。
+- 旧版本客户端不发送 `installId`，电脑端仍按公钥去重，并在列表中标记为“旧记录”。
 
 服务端在电脑托盘生成 6 位 PIN（不回传给手机），返回：
 
@@ -79,6 +87,41 @@ NDJSON 通道要求每条消息以 `\n` 结尾。当前实现的消息上限：
 ```
 
 PIN 有效期 5 分钟；确认成功或过期后失效。错误 PIN 可在有效期内重试，但同一配对请求连续输错 5 次后会立即锁定，需要重新发起配对。
+
+## 撤销授权
+
+手机解除配对时，用当前私钥签名撤销请求，通知电脑删除对应授权记录：
+
+```text
+revoke:<deviceId>:<nonce>
+```
+
+请求：
+
+```json
+{
+  "type": "device_revoke",
+  "payload": {
+    "deviceId": "…",
+    "nonce": "随机串",
+    "signature": "<base64 P1363>"
+  }
+}
+```
+
+成功：
+
+```json
+{
+  "type": "device_revoke_result",
+  "payload": { "removed": true }
+}
+```
+
+- `nonce` 用于绑定单次撤销签名；撤销本身按设备记录删除，重复请求会因记录不存在返回 `unknown_device`。
+- 只有当前仍有效的设备公钥能撤销记录。重新配对轮换公钥后，旧私钥的撤销请求会返回 `bad_signature`。
+- 记录不存在时返回 `unknown_device`，客户端按“已不存在”处理即可。
+- 电脑离线或版本过旧时，手机会保存待撤销票据，并在之后每 60 秒重试；撤销成功后清除本地密钥。
 
 ## 解锁流程
 

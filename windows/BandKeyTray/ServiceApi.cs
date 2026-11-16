@@ -2,7 +2,12 @@ namespace BandKeyTray;
 
 internal sealed record PairingInfo(string DeviceName, string Pin, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt);
 
-internal sealed record DeviceInfo(string DeviceId, string Name, DateTimeOffset CreatedAt);
+internal sealed record DeviceInfo(
+    string DeviceId,
+    string Name,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? LastPairedAt = null,
+    bool InstallIdBound = false);
 
 internal sealed record ServiceStatus(
     bool Ready,

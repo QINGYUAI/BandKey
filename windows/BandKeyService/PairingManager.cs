@@ -4,7 +4,12 @@ using System.Text;
 
 namespace BandKeyService;
 
-public sealed record PendingPair(string Pin, string DeviceName, string PublicKey, DateTimeOffset CreatedAt);
+public sealed record PendingPair(
+    string Pin,
+    string DeviceName,
+    string PublicKey,
+    string? InstallId,
+    DateTimeOffset CreatedAt);
 
 public sealed record PairingInfo(string DeviceName, string Pin, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt);
 
@@ -15,6 +20,7 @@ public sealed class PairingManager
     private const int MaxPendingPairings = 16;
     private const int MaxDeviceNameLength = 64;
     private const int MaxPublicKeyLength = 4096;
+    private const int MaxInstallIdLength = 64;
 
     private readonly string? _fixedPin;
     private readonly string? _pinFile;
@@ -27,7 +33,10 @@ public sealed class PairingManager
         _pinFile = pinFile;
     }
 
-    public (string PairingId, string Pin) StartPairing(string deviceName, string publicKey)
+    public (string PairingId, string Pin) StartPairing(
+        string deviceName,
+        string publicKey,
+        string? installId = null)
     {
         if (string.IsNullOrWhiteSpace(publicKey) || publicKey.Length > MaxPublicKeyLength)
         {
@@ -36,12 +45,18 @@ public sealed class PairingManager
 
         using var _ = CryptoUtil.ImportPublicKey(publicKey);
 
+        var normalizedInstallId = NormalizeInstallId(installId);
         PruneExpired();
         TrimPending();
 
         var pairingId = Guid.NewGuid().ToString("N");
         var pin = _fixedPin ?? RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
-        _pending[pairingId] = new PendingPair(pin, NormalizeDeviceName(deviceName), publicKey, DateTimeOffset.UtcNow);
+        _pending[pairingId] = new PendingPair(
+            pin,
+            NormalizeDeviceName(deviceName),
+            publicKey,
+            normalizedInstallId,
+            DateTimeOffset.UtcNow);
 
         if (!string.IsNullOrEmpty(_pinFile))
         {
@@ -150,6 +165,23 @@ public sealed class PairingManager
         return normalized.Length <= MaxDeviceNameLength
             ? normalized
             : normalized[..MaxDeviceNameLength];
+    }
+
+    private static string? NormalizeInstallId(string? installId)
+    {
+        var normalized = (installId ?? "").Trim();
+        if (normalized.Length == 0)
+        {
+            return null;
+        }
+
+        if (normalized.Length > MaxInstallIdLength
+            || normalized.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '-' and not '_'))
+        {
+            throw new ArgumentException("安装实例 ID 无效");
+        }
+
+        return normalized;
     }
 
     private static bool PinMatches(string expected, string actual)

@@ -12,6 +12,22 @@ import org.json.JSONObject
 
 class ProtocolException(message: String) : Exception(message)
 
+data class RevokeTicket(
+    val deviceId: String,
+    val nonce: String,
+    val signature: String
+)
+
+fun createRevokeTicket(keyPair: KeyPair, deviceId: String): RevokeTicket {
+    val nonce = UUID.randomUUID().toString().replace("-", "")
+    val data = "revoke:$deviceId:$nonce".toByteArray(Charsets.UTF_8)
+    return RevokeTicket(
+        deviceId = deviceId,
+        nonce = nonce,
+        signature = Crypto.signUnlockBase64(keyPair, data)
+    )
+}
+
 class ProtocolClient(private val transport: Transport) : Closeable {
 
     private class PendingRequest(
@@ -97,11 +113,17 @@ class ProtocolClient(private val transport: Transport) : Closeable {
         runCatching { transport.close() }
     }
 
-    suspend fun pairChallenge(keyPair: KeyPair, deviceName: String): String {
+    suspend fun pairChallenge(keyPair: KeyPair, deviceName: String, installId: String? = null): String {
         val publicKey = Crypto.publicKeySpkiBase64(keyPair.public as ECPublicKey)
+        val payload = JSONObject()
+            .put("deviceName", deviceName)
+            .put("devicePublicKey", publicKey)
+        if (!installId.isNullOrBlank()) {
+            payload.put("installId", installId)
+        }
         val challenge = request(
             "pair_challenge", "pair_request",
-            JSONObject().put("deviceName", deviceName).put("devicePublicKey", publicKey)
+            payload
         )
         return challenge.getJSONObject("payload").getString("pairingId")
     }
@@ -120,6 +142,17 @@ class ProtocolClient(private val transport: Transport) : Closeable {
             payload.put("deviceId", deviceId)
         }
         return request("status_result", "status", payload)
+    }
+
+    suspend fun revoke(ticket: RevokeTicket): JSONObject {
+        return request(
+            "device_revoke_result",
+            "device_revoke",
+            JSONObject()
+                .put("deviceId", ticket.deviceId)
+                .put("nonce", ticket.nonce)
+                .put("signature", ticket.signature)
+        )
     }
 
     suspend fun unlockStatus(requestId: Long): JSONObject {

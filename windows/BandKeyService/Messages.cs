@@ -8,6 +8,8 @@ public static class MessageTypes
     public const string PairChallenge = "pair_challenge";
     public const string PairConfirm = "pair_confirm";
     public const string PairSuccess = "pair_success";
+    public const string DeviceRevoke = "device_revoke";
+    public const string DeviceRevokeResult = "device_revoke_result";
     public const string Status = "status";
     public const string StatusResult = "status_result";
     public const string Unlock = "unlock";
@@ -17,8 +19,9 @@ public static class MessageTypes
     public const string Error = "error";
 }
 
-public sealed record PairRequest(string? DeviceName, string? DevicePublicKey);
+public sealed record PairRequest(string? DeviceName, string? DevicePublicKey, string? InstallId);
 public sealed record PairConfirm(string? PairingId, string? Pin);
+public sealed record DeviceRevokeRequest(string? DeviceId, string? Nonce, string? Signature);
 public sealed record StatusRequest(string? DeviceId);
 public sealed record UnlockRequest(
     string? DeviceId,
@@ -30,6 +33,7 @@ public sealed record UnlockRequest(
 public sealed record UnlockStatusRequest(long RequestId);
 public sealed record PairChallengeResponse(string PairingId);
 public sealed record PairSuccessResponse(string DeviceId, string DeviceName);
+public sealed record DeviceRevokeResponse(bool Ok, bool Removed);
 public sealed record StatusResponse(
     int ProtocolVersion,
     string ServerVersion,

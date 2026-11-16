@@ -10,7 +10,7 @@
     <AssemblyName>BandKeyTray</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\BandKey.ico</ApplicationIcon>
-    <Version>1.8.6</Version>
+    <Version>1.8.7</Version>
   </PropertyGroup>
 
   <ItemGroup>

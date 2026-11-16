@@ -4,7 +4,7 @@
 ;   dotnet publish windows\BandKeyTray     -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
 ; 并用 CMake 编译 BandKeyCredentialProvider.dll
 
-#define AppVersion "1.8.6"
+#define AppVersion "1.8.7"
 #define RepositoryUrl "https://github.com/QINGYUAI/BandKey"
 #define DocsUrl "https://github.com/QINGYUAI/BandKey/tree/main/docs"
 #define ReleasesUrl "https://github.com/QINGYUAI/BandKey/releases/latest"

@@ -9,6 +9,7 @@ import java.security.KeyPair
 import java.security.KeyStore
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
+import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -31,6 +32,13 @@ data class PairingRecord(
     }
 }
 
+data class PendingRevoke(
+    val deviceId: String,
+    val nonce: String,
+    val signature: String,
+    val createdAt: Long
+)
+
 /**
  * 配对信息持久化：
  * - 私钥、公钥、deviceId 序列化后由 Android Keystore 中的 AES-256-GCM 密钥加密；
@@ -41,6 +49,8 @@ class PairingStore(context: Context) {
     companion object {
         private const val PREFS = "bandkey_secure"
         private const val KEY_BLOB = "pairing_blob"
+        private const val KEY_INSTALL_ID = "install_id"
+        private const val KEY_PENDING_REVOKE = "pending_revoke"
         private const val KEY_ALIAS = "bandkey_pairing_v1"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
@@ -96,6 +106,55 @@ class PairingStore(context: Context) {
 
     fun clear() {
         prefs.edit().remove(KEY_BLOB).apply()
+    }
+
+    fun installId(): String {
+        synchronized(this) {
+            val existing = prefs.getString(KEY_INSTALL_ID, null)?.trim().orEmpty()
+            if (existing.isNotEmpty()) {
+                return existing
+            }
+
+            val created = UUID.randomUUID().toString().replace("-", "")
+            prefs.edit().putString(KEY_INSTALL_ID, created).commit()
+            return created
+        }
+    }
+
+    fun savePendingRevoke(pending: PendingRevoke) {
+        val json = JSONObject()
+            .put("deviceId", pending.deviceId)
+            .put("nonce", pending.nonce)
+            .put("signature", pending.signature)
+            .put("createdAt", pending.createdAt)
+            .toString()
+        prefs.edit().putString(KEY_PENDING_REVOKE, json).apply()
+    }
+
+    fun loadPendingRevoke(): PendingRevoke? {
+        val stored = prefs.getString(KEY_PENDING_REVOKE, null) ?: return null
+        return try {
+            val json = JSONObject(stored)
+            val deviceId = json.optString("deviceId").trim()
+            val nonce = json.optString("nonce").trim()
+            val signature = json.optString("signature").trim()
+            if (deviceId.isEmpty() || nonce.isEmpty() || signature.isEmpty()) {
+                null
+            } else {
+                PendingRevoke(
+                    deviceId = deviceId,
+                    nonce = nonce,
+                    signature = signature,
+                    createdAt = json.optLong("createdAt", 0L)
+                )
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun clearPendingRevoke() {
+        prefs.edit().remove(KEY_PENDING_REVOKE).apply()
     }
 
     private fun getOrCreateKey(): SecretKey {

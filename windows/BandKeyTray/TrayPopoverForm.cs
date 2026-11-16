@@ -49,7 +49,7 @@ internal sealed class TrayPopoverForm : TechForm
         Action openLog,
         Action showUpdates,
         Action openDocs)
-        : base("控制中心", new Size(560, 780))
+        : base("控制中心", new Size(560, 792))
     {
         _api = api;
         _bleState = bleState;
@@ -115,7 +115,7 @@ internal sealed class TrayPopoverForm : TechForm
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 8));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 180));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 10));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
 
         var statusRow = new Panel
         {
@@ -296,35 +296,68 @@ internal sealed class TrayPopoverForm : TechForm
         actions.Controls.Add(_credentialAction, 0, 2);
         actions.Controls.Add(_refreshAction, 1, 2);
 
-        var footer = new Panel
+        var footer = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
             BackColor = TechPalette.Background,
             Margin = new Padding(0)
         };
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         footer.Paint += (_, e) =>
         {
             using var divider = new Pen(TechPalette.BorderSoft);
             e.Graphics.DrawLine(divider, 0, 0, footer.Width, 0);
         };
+
+        var storage = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 2, 12, 0)
+        };
+        storage.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        storage.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        storage.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
         var local = new Label
         {
             Text = "LOCAL ONLY · DPAPI",
-            AutoSize = true,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
             Font = TechPalette.Caption,
             ForeColor = TechPalette.Dim,
             BackColor = Color.Transparent,
-            Location = new Point(0, 6)
+            TextAlign = ContentAlignment.MiddleLeft,
+            Margin = new Padding(0)
         };
         var platform = new Label
         {
             Text = "Windows 11 · x64",
-            AutoSize = true,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
             Font = TechPalette.Caption,
             ForeColor = TechPalette.Dim,
             BackColor = Color.Transparent,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(footer.Width - 120, 6)
+            TextAlign = ContentAlignment.MiddleLeft,
+            Margin = new Padding(0)
+        };
+        storage.Controls.Add(local, 0, 0);
+        storage.Controls.Add(platform, 0, 1);
+
+        var links = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 6, 0, 0),
+            Padding = new Padding(0)
         };
         var logLink = new Label
         {
@@ -334,8 +367,7 @@ internal sealed class TrayPopoverForm : TechForm
             ForeColor = TechPalette.Dim,
             BackColor = Color.Transparent,
             Cursor = Cursors.Hand,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(footer.Width - 220, 6)
+            Margin = new Padding(14, 0, 0, 0)
         };
         logLink.MouseEnter += (_, _) => logLink.ForeColor = TechPalette.Mint;
         logLink.MouseLeave += (_, _) => logLink.ForeColor = TechPalette.Dim;
@@ -348,7 +380,7 @@ internal sealed class TrayPopoverForm : TechForm
             ForeColor = TechPalette.Dim,
             BackColor = Color.Transparent,
             Cursor = Cursors.Hand,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right
+            Margin = new Padding(14, 0, 0, 0)
         };
         docsLink.MouseEnter += (_, _) => docsLink.ForeColor = TechPalette.Mint;
         docsLink.MouseLeave += (_, _) => docsLink.ForeColor = TechPalette.Dim;
@@ -361,23 +393,16 @@ internal sealed class TrayPopoverForm : TechForm
             ForeColor = TechPalette.Dim,
             BackColor = Color.Transparent,
             Cursor = Cursors.Hand,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right
+            Margin = new Padding(14, 0, 0, 0)
         };
         updateLink.MouseEnter += (_, _) => updateLink.ForeColor = TechPalette.Mint;
         updateLink.MouseLeave += (_, _) => updateLink.ForeColor = TechPalette.Dim;
         updateLink.Click += (_, _) => _showUpdates();
-        footer.Controls.Add(local);
-        footer.Controls.Add(docsLink);
-        footer.Controls.Add(updateLink);
-        footer.Controls.Add(logLink);
-        footer.Controls.Add(platform);
-        footer.Resize += (_, _) =>
-        {
-            platform.Left = Math.Max(0, footer.Width - platform.Width);
-            logLink.Left = Math.Max(local.Right + 12, platform.Left - logLink.Width - 20);
-            updateLink.Left = Math.Max(0, logLink.Left - updateLink.Width - 12);
-            docsLink.Left = Math.Max(0, updateLink.Left - docsLink.Width - 12);
-        };
+        links.Controls.Add(logLink);
+        links.Controls.Add(updateLink);
+        links.Controls.Add(docsLink);
+        footer.Controls.Add(storage, 0, 0);
+        footer.Controls.Add(links, 1, 0);
 
         root.Controls.Add(statusRow, 0, 0);
         root.Controls.Add(hero, 0, 2);

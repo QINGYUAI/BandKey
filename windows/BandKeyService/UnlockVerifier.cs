@@ -74,6 +74,45 @@ public sealed class UnlockVerifier
         return (true, string.Empty);
     }
 
+    public (bool Ok, string Error) VerifyRevocation(DeviceRevokeRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.DeviceId))
+        {
+            return (false, "missing_device_id");
+        }
+
+        var device = _store.Find(request.DeviceId.Trim());
+        if (device is null)
+        {
+            return (false, "unknown_device");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Nonce) || request.Nonce.Length is < 8 or > 128)
+        {
+            return (false, "invalid_nonce");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Signature))
+        {
+            return (false, "bad_signature");
+        }
+
+        var data = $"revoke:{device.DeviceId}:{request.Nonce}";
+        try
+        {
+            if (!CryptoUtil.VerifySignature(device.PublicKey, data, request.Signature))
+            {
+                return (false, "bad_signature");
+            }
+        }
+        catch (Exception ex) when (ex is FormatException or CryptographicException or ArgumentException)
+        {
+            return (false, "bad_signature");
+        }
+
+        return (true, string.Empty);
+    }
+
     private void PruneNonces(long nowSeconds)
     {
         foreach (var kv in _nonces)

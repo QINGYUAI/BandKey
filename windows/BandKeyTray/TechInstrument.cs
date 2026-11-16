@@ -722,7 +722,7 @@ internal sealed class TechDeviceList : Control
         var columns = GetColumns();
         DrawText(graphics, "设备名称", TechPalette.BodyBold, TechPalette.Mint, columns.Name);
         DrawText(graphics, "设备 ID", TechPalette.BodyBold, TechPalette.Mint, columns.DeviceId);
-        DrawText(graphics, "添加时间", TechPalette.BodyBold, TechPalette.Mint, columns.CreatedAt);
+        DrawText(graphics, "最近配对", TechPalette.BodyBold, TechPalette.Mint, columns.CreatedAt);
     }
 
     private void DrawRows(Graphics graphics)
@@ -734,14 +734,14 @@ internal sealed class TechDeviceList : Control
             graphics.DrawLine(icon, Width / 2f - 6, HeaderHeight + 63, Width / 2f + 6, HeaderHeight + 63);
             TextRenderer.DrawText(
                 graphics,
-                "尚无已配对设备",
+                "尚无授权记录",
                 TechPalette.BodyBold,
                 new Rectangle(0, HeaderHeight + 76, Width, 24),
                 TechPalette.Muted,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             TextRenderer.DrawText(
                 graphics,
-                "在手机上发起配对后，设备会出现在这里",
+                "在手机上发起配对后，授权记录会出现在这里",
                 TechPalette.Body,
                 new Rectangle(0, HeaderHeight + 101, Width, 24),
                 TechPalette.Dim,
@@ -784,7 +784,7 @@ internal sealed class TechDeviceList : Control
 
             DrawText(
                 graphics,
-                device.Name,
+                device.InstallIdBound ? device.Name : $"{device.Name} · 旧记录",
                 TechPalette.BodyBold,
                 TechPalette.Text,
                 Offset(columns.Name, rowRect.Top));
@@ -796,7 +796,7 @@ internal sealed class TechDeviceList : Control
                 Offset(columns.DeviceId, rowRect.Top));
             DrawText(
                 graphics,
-                device.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"),
+                (device.LastPairedAt ?? device.CreatedAt).ToLocalTime().ToString("yyyy-MM-dd HH:mm"),
                 TechPalette.Body,
                 TechPalette.Muted,
                 Offset(columns.CreatedAt, rowRect.Top));

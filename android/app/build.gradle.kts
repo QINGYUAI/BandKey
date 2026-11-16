@@ -6,7 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val bandKeyVersionName = "1.8.6"
+val bandKeyVersionName = "1.8.7"
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties()
@@ -33,7 +33,7 @@ android {
         applicationId = "com.bandkey.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
+        versionCode = 14
         versionName = bandKeyVersionName
     }
 

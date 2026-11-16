@@ -176,8 +176,8 @@ BLE 需要 Windows 10 1809+ 和支持 Peripheral 角色的适配器。同一适�
 | `windows\BandKeyTray\BandKeyTray.csproj` | `<Version>x.y.z</Version>` |
 | `android\app\build.gradle.kts` | `bandKeyVersionName` 和 `versionCode` |
 
-`versionCode` 必须单调递增，不能重复使用已发布的值。当前版本为 `1.8.6` /
-`versionCode 13`。
+`versionCode` 必须单调递增，不能重复使用已发布的值。当前版本为 `1.8.7` /
+`versionCode 14`。
 
 ## 统一打包
 
@@ -198,9 +198,9 @@ BLE 需要 Windows 10 1809+ 和支持 Peripheral 角色的适配器。同一适�
 
 ```text
 dist/
-├── 1.8.6/
-│   ├── BandKey-1.8.6-windows-x64.exe
-│   ├── BandKey-1.8.6-android.apk
+├── 1.8.7/
+│   ├── BandKey-1.8.7-windows-x64.exe
+│   ├── BandKey-1.8.7-android.apk
 │   └── SHA256SUMS.txt
 └── latest/
     ├── BandKey-Setup.exe

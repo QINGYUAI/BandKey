@@ -12,7 +12,7 @@ internal sealed class DevicesDialog : TechForm
     private readonly TechStatusPill _statusPill = new();
 
     public DevicesDialog(ServiceApi api, IReadOnlyList<DeviceInfo> devices)
-        : base("已配对设备", new Size(760, 560))
+        : base("授权记录", new Size(760, 560))
     {
         _api = api;
 
@@ -27,7 +27,7 @@ internal sealed class DevicesDialog : TechForm
 
         var kicker = new Label
         {
-            Text = "AUTHORIZED DEVICES / 已授权",
+            Text = "AUTHORIZED RECORDS / 已授权",
             AutoSize = true,
             Font = TechPalette.Caption,
             ForeColor = TechPalette.Mint,
@@ -36,7 +36,7 @@ internal sealed class DevicesDialog : TechForm
         };
         var heading = new Label
         {
-            Text = "已授权设备",
+            Text = "已授权记录",
             AutoSize = true,
             Font = TechPalette.Display,
             ForeColor = TechPalette.Text,
@@ -45,7 +45,7 @@ internal sealed class DevicesDialog : TechForm
         };
         var subtitle = new Label
         {
-            Text = "这些设备持有配对私钥，可以签名触发本机解锁。",
+            Text = "每条记录对应一把签名密钥；同一安装实例重新配对会原地轮换。",
             AutoSize = true,
             Font = TechPalette.Body,
             ForeColor = TechPalette.Muted,
@@ -93,7 +93,7 @@ internal sealed class DevicesDialog : TechForm
         };
         _delete = new TechButton
         {
-            Text = "删除所选",
+            Text = "撤销所选",
             Width = 112,
             Accent = TechPalette.Danger,
             Margin = new Padding(8, 0, 0, 0)
@@ -139,9 +139,14 @@ internal sealed class DevicesDialog : TechForm
     private void Fill(IReadOnlyList<DeviceInfo> devices)
     {
         _list.SetDevices(devices);
-        _count.Text = $"AUTHORIZED DEVICES / {devices.Count:00}";
+        _count.Text = $"AUTHORIZED RECORDS / {devices.Count:00}";
+        var legacyCount = devices.Count(device => !device.InstallIdBound);
         _statusPill.SetStatus(
-            devices.Count == 0 ? "等待设备配对" : $"{devices.Count} 台已授权",
+            devices.Count == 0
+                ? "等待设备配对"
+                : legacyCount > 0
+                    ? $"{devices.Count} 条授权 · {legacyCount} 条旧记录"
+                    : $"{devices.Count} 条授权",
             devices.Count == 0 ? TechPalette.Warning : TechPalette.Mint);
         UpdateActions();
     }
@@ -161,8 +166,8 @@ internal sealed class DevicesDialog : TechForm
         {
             TechMessageBox.Show(
                 this,
-                "读取设备列表失败：" + ex.Message + "\n\n请确认服务状态为运行中。",
-                "已配对设备",
+                "读取授权列表失败：" + ex.Message + "\n\n请确认服务状态为运行中。",
+                "授权记录",
                 TechMessageKind.Danger);
         }
     }
@@ -176,8 +181,8 @@ internal sealed class DevicesDialog : TechForm
 
         var confirm = TechMessageBox.Show(
             this,
-            $"确定删除设备“{device.Name}”吗？\n删除后该设备将无法再解锁本机。",
-            "删除设备",
+            $"确定撤销“{device.Name}”的授权吗？\n撤销后这把私钥将无法再解锁本机。",
+            "撤销授权",
             TechMessageKind.Warning,
             confirm: true);
         if (confirm != DialogResult.Yes)
@@ -194,8 +199,8 @@ internal sealed class DevicesDialog : TechForm
         {
             TechMessageBox.Show(
                 this,
-                "删除失败：" + ex.Message,
-                "已配对设备",
+                "撤销失败：" + ex.Message,
+                "授权记录",
                 TechMessageKind.Danger);
         }
     }

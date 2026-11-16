@@ -468,7 +468,14 @@ public sealed class PipeServer : IAsyncDisposable
                     {
                         @event = "DEVICES",
                         devices = _store.Devices
-                            .Select(d => new { d.DeviceId, d.Name, d.CreatedAt })
+                            .Select(d => new
+                            {
+                                d.DeviceId,
+                                d.Name,
+                                d.CreatedAt,
+                                d.LastPairedAt,
+                                installIdBound = !string.IsNullOrWhiteSpace(d.InstallId)
+                            })
                             .ToList()
                     }).ConfigureAwait(false);
                     break;
